@@ -17,6 +17,10 @@ This test project provides comprehensive coverage of the OpenClaw.Shared library
 # Run all tests
 dotnet test
 
+# Run integration tests (disabled by default)
+$env:OPENCLAW_RUN_INTEGRATION=1
+dotnet test
+
 # Run with detailed output
 dotnet test --logger "console;verbosity=detailed"
 
@@ -94,6 +98,13 @@ All tests are **pure unit tests** that don't require:
 - WebSocket servers
 - File system access
 - External dependencies
+
+### Integration Tests (Opt-in)
+Integration tests are disabled by default in CI and local runs. Mark them with:
+- `[IntegrationFact]`
+- `[IntegrationTheory]`
+
+Enable locally by setting `OPENCLAW_RUN_INTEGRATION=1` before running `dotnet test`.
 
 ### Reflection Usage
 Some tests use reflection to access private static utility methods:
