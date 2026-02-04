@@ -61,6 +61,9 @@ public sealed partial class SettingsWindow : WindowEx
         NotifyBuildCb.IsChecked = _settings.NotifyBuild;
         NotifyStockCb.IsChecked = _settings.NotifyStock;
         NotifyInfoCb.IsChecked = _settings.NotifyInfo;
+        
+        // Advanced
+        NodeModeToggle.IsOn = _settings.EnableNodeMode;
     }
 
     private void SaveSettings()
@@ -84,6 +87,9 @@ public sealed partial class SettingsWindow : WindowEx
         _settings.NotifyBuild = NotifyBuildCb.IsChecked ?? true;
         _settings.NotifyStock = NotifyStockCb.IsChecked ?? true;
         _settings.NotifyInfo = NotifyInfoCb.IsChecked ?? true;
+        
+        // Advanced
+        _settings.EnableNodeMode = NodeModeToggle.IsOn;
 
         _settings.Save();
         AutoStartManager.SetAutoStart(_settings.AutoStart);

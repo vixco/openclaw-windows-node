@@ -245,8 +245,8 @@ Niche scenario. If the "server" must be Windows for some reason, this works but 
 | `canvas.present` | ✅ SwiftUI WebView | ✅ WKWebView | ✅ WebView | ❌ | **✅ WebView2** | WebView2 |
 | `canvas.snapshot` | ✅ | ✅ | ✅ | ❌ | **✅** | WebView2 CapturePreviewAsync |
 | `canvas.eval` | ✅ | ✅ | ✅ | ❌ | **✅** | WebView2 ExecuteScriptAsync |
-| `canvas.a2ui` | ✅ | ✅ | ✅ | ❌ | **✅** | WebView2 |
-| `camera.snap` | ✅ AVFoundation | ✅ AVFoundation | ✅ CameraX | ❌ | **✅** | Windows.Media.Capture |
+| `canvas.a2ui` | ✅ | ✅ | ✅ | ❌ | **⚠️ Investigating** | WebView2 |
+| `camera.snap` | ✅ AVFoundation | ✅ AVFoundation | ✅ CameraX | ❌ | **✅** | MediaCapture + frame reader fallback |
 | `camera.clip` | ✅ | ✅ | ✅ | ❌ | **✅** | MediaCapture + MediaEncoding |
 | `camera.list` | ✅ | ✅ | ✅ | ❌ | **✅** | DeviceInformation.FindAllAsync |
 | `screen.record` | ✅ CGWindowListCreateImage | ✅ ReplayKit | ✅ MediaProjection | ❌ | **✅** | Windows.Graphics.Capture |
@@ -575,7 +575,7 @@ The node protocol requires a stable device identity (`device.id`) derived from a
 - [ ] `camera.snap` — capture photo from webcam
 - [ ] `camera.clip` — record short video clip
 - [ ] `screen.record` — capture Windows desktop via Graphics Capture API
-- [ ] Permission prompts (camera, screen capture consent)
+- [ ] Permission prompts (camera, screen capture consent; MSIX capability prompts)
 - [ ] Multi-monitor support for screen capture (`--screen <index>`)
 
 ### Phase 3: Native Windows Gateway (Exploration)

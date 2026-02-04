@@ -124,6 +124,82 @@ These features are available in Windows but not in the Mac app:
 | First-run welcome | Guided onboarding for new users |
 | PowerToys integration | Command Palette extension |
 
+### 🔌 Node Mode (Agent Control)
+
+When Node Mode is enabled in Settings, your Windows PC becomes a **node** that the OpenClaw agent can control - just like the Mac app! The agent can:
+
+| Capability | Commands | Description |
+|------------|----------|-------------|
+| **System** | `system.notify` | Show Windows toast notifications |
+| **Canvas** | `canvas.present`, `canvas.hide`, `canvas.navigate`, `canvas.eval`, `canvas.snapshot`, `canvas.a2ui.push` (investigating), `canvas.a2ui.reset` (investigating) | Display and control a WebView2 window |
+| **Screen** | `screen.capture`, `screen.list` | Capture screenshots |
+| **Camera** | `camera.list`, `camera.snap` | Enumerate cameras and capture a still photo |
+
+#### Node Setup
+
+1. **Enable Node Mode** in Settings (enabled by default)
+2. **First connection** creates a pairing request on the gateway
+3. **Approve the device** on your gateway:
+   ```bash
+   openclaw devices list          # Find your Windows device
+   openclaw devices approve <id>  # Approve it
+   ```
+4. **Configure gateway allowCommands** - Add the commands you want to allow in `~/.openclaw/openclaw.json`:
+   ```json
+   {
+     "nodes": {
+       "allowCommands": [
+         "system.notify",
+         "canvas.present",
+         "canvas.hide",
+         "canvas.navigate",
+         "canvas.eval",
+         "canvas.snapshot",
+         "canvas.a2ui.push",
+         "canvas.a2ui.reset",
+         "screen.capture",
+         "screen.list",
+         "camera.list",
+         "camera.snap"
+       ]
+     }
+   }
+    ```
+   > ⚠️ **Important**: The gateway has a server-side allowlist. Commands must be listed explicitly - wildcards like `canvas.*` don't work!
+
+5. **Test it** from your Mac/gateway:
+   ```bash
+    # Show a notification
+    openclaw nodes notify --node <id> --title "Hello" --body "From Mac!"
+    
+    # Open a canvas window
+    openclaw nodes canvas present --node <id> --url "https://example.com"
+    
+    # Execute JavaScript (note: CLI sends "javaScript" param)
+    openclaw nodes canvas eval --node <id> --javaScript "document.title"
+    
+    # Render A2UI JSONL in the canvas (pass the file contents as a string)
+    openclaw nodes canvas a2ui push --node <id> --jsonl "$(Get-Content -Raw .\\ui.jsonl)"
+    
+    # Take a screenshot
+    openclaw nodes invoke --node <id> --command screen.capture --params '{"screenIndex":0,"format":"png"}'
+
+    # List cameras
+    openclaw nodes invoke --node <id> --command camera.list
+
+    # Take a photo (NV12/MediaCapture fallback)
+    openclaw nodes invoke --node <id> --command camera.snap --params '{"deviceId":"<device-id>","format":"jpeg","quality":80}'
+    ```
+    > 📷 **Camera permission**: Desktop builds rely on Windows Privacy settings. Packaged MSIX builds will show the system consent prompt.
+
+#### Node Status in Tray Menu
+
+The tray menu shows node connection status:
+- **🔌 Node Mode** section appears when enabled
+- **⏳ Waiting for approval...** - Device needs approval on gateway
+- **✅ Paired & Connected** - Ready to receive commands
+- Click the device ID to copy it for the approval command
+
 ### Deep Links
 
 OpenClaw registers the `openclaw://` URL scheme for automation and integration:

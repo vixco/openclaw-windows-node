@@ -2,6 +2,7 @@ using Microsoft.Toolkit.Uwp.Notifications;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using OpenClaw.Shared;
+using OpenClaw.Shared.Capabilities;
 using OpenClawTray.Dialogs;
 using OpenClawTray.Helpers;
 using OpenClawTray.Services;
@@ -60,22 +61,31 @@ public partial class App : Application
     private NotificationHistoryWindow? _notificationHistoryWindow;
     private TrayMenuWindow? _trayMenuWindow;
     
+    // Node service (optional, enabled in settings)
+    private NodeService? _nodeService;
+    
     // Keep-alive window to anchor WinUI runtime (prevents GC/threading issues)
     private Window? _keepAliveWindow;
 
     private string[]? _startupArgs;
-    private static readonly string CrashLogPath = Path.Combine(
+    private static readonly string DataPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "OpenClawTray", "crash.log");
+        "OpenClawTray");
+    private static readonly string CrashLogPath = Path.Combine(DataPath, "crash.log");
+    private static readonly string RunMarkerPath = Path.Combine(DataPath, "run.marker");
 
     public App()
     {
         InitializeComponent();
         
+        CheckPreviousRun();
+        MarkRunStarted();
+        
         // Hook up crash handlers
         this.UnhandledException += OnUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
     }
 
     private void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
@@ -94,6 +104,16 @@ public partial class App : Application
         LogCrash("UnobservedTaskException", e.Exception);
         e.SetObserved(); // Prevent crash
     }
+    
+    private void OnProcessExit(object? sender, EventArgs e)
+    {
+        MarkRunEnded();
+        try
+        {
+            Logger.Info($"Process exiting (ExitCode={Environment.ExitCode})");
+        }
+        catch { }
+    }
 
     private static void LogCrash(string source, Exception? ex)
     {
@@ -107,6 +127,55 @@ public partial class App : Application
             File.AppendAllText(CrashLogPath, message);
         }
         catch { /* Can't log the crash logger crash */ }
+        
+        try
+        {
+            if (ex != null)
+            {
+                Logger.Error($"CRASH {source}: {ex}");
+            }
+            else
+            {
+                Logger.Error($"CRASH {source}");
+            }
+        }
+        catch { /* Ignore logging failures */ }
+    }
+    
+    private static void CheckPreviousRun()
+    {
+        try
+        {
+            if (File.Exists(RunMarkerPath))
+            {
+                var startedAt = File.ReadAllText(RunMarkerPath);
+                Logger.Error($"Previous session did not exit cleanly (started {startedAt})");
+                File.Delete(RunMarkerPath);
+            }
+        }
+        catch { }
+    }
+    
+    private static void MarkRunStarted()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(RunMarkerPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            File.WriteAllText(RunMarkerPath, DateTime.Now.ToString("O"));
+        }
+        catch { }
+    }
+    
+    private static void MarkRunEnded()
+    {
+        try
+        {
+            if (File.Exists(RunMarkerPath))
+                File.Delete(RunMarkerPath);
+        }
+        catch { }
     }
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -153,8 +222,18 @@ public partial class App : Application
         // Initialize tray icon (window-less pattern from WinUIEx)
         InitializeTrayIcon();
 
-        // Initialize gateway client
-        InitializeGatewayClient();
+        // Initialize connections - only use operator if node mode is disabled
+        // (dual connections cause gateway conflicts)
+        if (_settings?.EnableNodeMode == true)
+        {
+            // Node mode: only use node connection (provides health events too)
+            InitializeNodeService();
+        }
+        else
+        {
+            // Operator mode: use operator connection
+            InitializeGatewayClient();
+        }
 
         // Start health check timer
         StartHealthCheckTimer();
@@ -407,6 +486,7 @@ public partial class App : Application
             case "settings": ShowSettings(); break;
             case "autostart": ToggleAutoStart(); break;
             case "log": OpenLogFile(); break;
+            case "copydeviceid": CopyDeviceIdToClipboard(); break;
             case "exit": ExitApplication(); break;
             default:
                 if (action.StartsWith("session:"))
@@ -414,6 +494,28 @@ public partial class App : Application
                 else if (action.StartsWith("channel:"))
                     ToggleChannel(action[8..]);
                 break;
+        }
+    }
+    
+    private void CopyDeviceIdToClipboard()
+    {
+        if (_nodeService?.FullDeviceId == null) return;
+        
+        try
+        {
+            var dataPackage = new global::Windows.ApplicationModel.DataTransfer.DataPackage();
+            dataPackage.SetText(_nodeService.FullDeviceId);
+            global::Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+            
+            // Show toast confirming copy
+            new ToastContentBuilder()
+                .AddText("📋 Device ID Copied")
+                .AddText($"Run: openclaw devices approve {_nodeService.ShortDeviceId}...")
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to copy device ID: {ex.Message}");
         }
     }
 
@@ -443,6 +545,31 @@ public partial class App : Application
         if (_lastUsage != null)
         {
             menu.AddMenuItem(_lastUsage.DisplayText, "📊", "", isEnabled: false);
+        }
+        
+        // Node Mode status (if enabled)
+        if (_settings?.EnableNodeMode == true && _nodeService != null)
+        {
+            menu.AddSeparator();
+            menu.AddHeader("🔌 Node Mode");
+            
+            if (_nodeService.IsPendingApproval)
+            {
+                menu.AddMenuItem("⏳ Waiting for approval...", "", "", isEnabled: false, indent: true);
+                menu.AddMenuItem($"ID: {_nodeService.ShortDeviceId}...", "", "copydeviceid", indent: true);
+            }
+            else if (_nodeService.IsPaired && _nodeService.IsConnected)
+            {
+                menu.AddMenuItem("✅ Paired & Connected", "", "", isEnabled: false, indent: true);
+            }
+            else if (_nodeService.IsConnected)
+            {
+                menu.AddMenuItem("🔄 Connecting...", "", "", isEnabled: false, indent: true);
+            }
+            else
+            {
+                menu.AddMenuItem("⚪ Disconnected", "", "", isEnabled: false, indent: true);
+            }
         }
 
         // Sessions (if any) - show meaningful info like the WinForms version
@@ -702,6 +829,95 @@ public partial class App : Application
             _gatewayClient.UsageUpdated -= OnUsageUpdated;
         }
     }
+    
+    private void InitializeNodeService()
+    {
+        if (_settings == null || !_settings.EnableNodeMode) return;
+        if (_dispatcherQueue == null) return;
+        
+        try
+        {
+            Logger.Info("Initializing Windows Node service...");
+            
+            _nodeService = new NodeService(new AppLogger(), _dispatcherQueue, DataPath);
+            _nodeService.StatusChanged += OnNodeStatusChanged;
+            _nodeService.NotificationRequested += OnNodeNotificationRequested;
+            _nodeService.PairingStatusChanged += OnPairingStatusChanged;
+            
+            // Connect to gateway as a node (separate connection from operator)
+            _ = _nodeService.ConnectAsync(_settings.GatewayUrl, _settings.Token);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to initialize node service: {ex.Message}");
+        }
+    }
+    
+    private void OnNodeStatusChanged(object? sender, ConnectionStatus status)
+    {
+        Logger.Info($"Node status: {status}");
+        
+        // In node-only mode, surface node connection in main status indicator
+        if (_settings?.EnableNodeMode == true)
+        {
+            _currentStatus = status;
+            UpdateTrayIcon();
+        }
+        
+        // Don't show "connected" toast if waiting for pairing - we'll show pairing status instead
+        if (status == ConnectionStatus.Connected && _nodeService?.IsPaired == true)
+        {
+            try
+            {
+                new ToastContentBuilder()
+                    .AddText("🔌 Node Mode Active")
+                    .AddText("This PC can now receive commands from the agent (canvas, screenshots)")
+                    .Show();
+            }
+            catch { /* ignore */ }
+        }
+    }
+    
+    private void OnPairingStatusChanged(object? sender, OpenClaw.Shared.PairingStatusEventArgs args)
+    {
+        Logger.Info($"Pairing status: {args.Status}");
+        
+        try
+        {
+            if (args.Status == OpenClaw.Shared.PairingStatus.Pending)
+            {
+                // Show toast with approval instructions
+                new ToastContentBuilder()
+                    .AddText("⏳ Awaiting Pairing Approval")
+                    .AddText($"Run on gateway: openclaw devices approve {args.DeviceId.Substring(0, 16)}...")
+                    .Show();
+            }
+            else if (args.Status == OpenClaw.Shared.PairingStatus.Paired)
+            {
+                new ToastContentBuilder()
+                    .AddText("✅ Node Paired!")
+                    .AddText("This PC can now receive commands from the agent")
+                    .Show();
+            }
+        }
+        catch { /* ignore */ }
+    }
+    
+    private void OnNodeNotificationRequested(object? sender, OpenClaw.Shared.Capabilities.SystemNotifyArgs args)
+    {
+        // Agent requested a notification via node.invoke system.notify
+        try
+        {
+            new ToastContentBuilder()
+                .AddText(args.Title)
+                .AddText(args.Body)
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to show node notification: {ex.Message}");
+        }
+    }
 
     private void OnConnectionStatusChanged(object? sender, ConnectionStatus status)
     {
@@ -942,6 +1158,12 @@ public partial class App : Application
         // Reconnect with new settings
         _gatewayClient?.Dispose();
         InitializeGatewayClient();
+        
+        // Reinitialize node service (safe dispose pattern)
+        var oldNodeService = _nodeService;
+        _nodeService = null;
+        try { oldNodeService?.Dispose(); } catch (Exception ex) { Logger.Warn($"Node dispose error: {ex.Message}"); }
+        InitializeNodeService();
 
         // Update global hotkey
         if (_settings!.GlobalHotkeyEnabled)

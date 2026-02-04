@@ -36,6 +36,9 @@ public class SettingsManager
     public bool NotifyBuild { get; set; } = true;
     public bool NotifyStock { get; set; } = true;
     public bool NotifyInfo { get; set; } = true;
+    
+    // Node mode (enables Windows as a node, not just operator)
+    public bool EnableNodeMode { get; set; } = false;
 
     public SettingsManager()
     {
@@ -66,6 +69,7 @@ public class SettingsManager
                     NotifyBuild = loaded.NotifyBuild;
                     NotifyStock = loaded.NotifyStock;
                     NotifyInfo = loaded.NotifyInfo;
+                    EnableNodeMode = loaded.EnableNodeMode;
                 }
             }
         }
@@ -96,7 +100,8 @@ public class SettingsManager
                 NotifyCalendar = NotifyCalendar,
                 NotifyBuild = NotifyBuild,
                 NotifyStock = NotifyStock,
-                NotifyInfo = NotifyInfo
+                NotifyInfo = NotifyInfo,
+                EnableNodeMode = EnableNodeMode
             };
 
             var options = new JsonSerializerOptions { WriteIndented = true };
@@ -127,5 +132,6 @@ public class SettingsManager
         public bool NotifyBuild { get; set; } = true;
         public bool NotifyStock { get; set; } = true;
         public bool NotifyInfo { get; set; } = true;
+        public bool EnableNodeMode { get; set; } = false;
     }
 }

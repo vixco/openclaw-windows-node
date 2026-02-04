@@ -84,6 +84,19 @@
                 <Button x:Name="TestNotificationButton" Content="Send Test Notification" 
                         Click="OnTestNotification"/>
                 
+                <!-- Advanced Section -->
+                <StackPanel Spacing="8">
+                    <TextBlock Text="ADVANCED (EXPERIMENTAL)" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="#E74C3C" FontWeight="Bold"/>
+                    
+                    <ToggleSwitch x:Name="NodeModeToggle" Header="Enable Node Mode"/>
+                    <TextBlock Text="When enabled, this PC can receive commands from the agent (canvas, screenshots, etc.)" 
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"
+                               Margin="0,-4,0,0"/>
+                </StackPanel>
+                
             </StackPanel>
         </ScrollViewer>
         
