@@ -88,6 +88,8 @@ public abstract class NodeCapabilityBase : INodeCapability
     
     protected T? GetArg<T>(JsonElement args, string name, T? defaultValue = default)
     {
+        if (args.ValueKind == JsonValueKind.Undefined || args.ValueKind == JsonValueKind.Null)
+            return defaultValue;
         if (args.TryGetProperty(name, out var prop))
         {
             try
@@ -104,6 +106,8 @@ public abstract class NodeCapabilityBase : INodeCapability
     
     protected string? GetStringArg(JsonElement args, string name, string? defaultValue = null)
     {
+        if (args.ValueKind == JsonValueKind.Undefined || args.ValueKind == JsonValueKind.Null)
+            return defaultValue;
         if (args.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
         {
             return prop.GetString();
@@ -113,6 +117,8 @@ public abstract class NodeCapabilityBase : INodeCapability
     
     protected int GetIntArg(JsonElement args, string name, int defaultValue = 0)
     {
+        if (args.ValueKind == JsonValueKind.Undefined || args.ValueKind == JsonValueKind.Null)
+            return defaultValue;
         if (args.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Number)
         {
             return prop.GetInt32();
@@ -122,6 +128,8 @@ public abstract class NodeCapabilityBase : INodeCapability
     
     protected bool GetBoolArg(JsonElement args, string name, bool defaultValue = false)
     {
+        if (args.ValueKind == JsonValueKind.Undefined || args.ValueKind == JsonValueKind.Null)
+            return defaultValue;
         if (args.TryGetProperty(name, out var prop))
         {
             if (prop.ValueKind == JsonValueKind.True) return true;

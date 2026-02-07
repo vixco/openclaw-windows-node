@@ -30,6 +30,71 @@ dotnet test --filter "FullyQualifiedName~AgentActivityTests"
 
 ## Test Coverage
 
+### NodeCapabilitiesTests.cs (15 tests)
+- ✅ `CanHandle()` for registered vs unknown commands
+- ✅ `ExecuteAsync()` returns Ok with payload
+- ✅ `GetStringArg()` — present, missing, wrong type, default JsonElement
+- ✅ `GetIntArg()` — present, missing, wrong type
+- ✅ `GetBoolArg()` — present, missing, wrong type
+- ✅ `NodeInvokeResponse` defaults and property setting
+- ✅ `NodeRegistration` defaults
+
+### CapabilityTests.cs (28 tests)
+
+#### SystemCapabilityTests (4 tests)
+- ✅ CanHandle system.notify, rejects system.run
+- ✅ Notify raises event with parsed args
+- ✅ Notify defaults title to "OpenClaw"
+- ✅ Unknown command returns error
+
+#### CanvasCapabilityTests (12 tests)
+- ✅ CanHandle all 7 canvas commands
+- ✅ Present raises event with url/width/height/title/alwaysOnTop
+- ✅ Present uses defaults when args missing
+- ✅ Hide raises event
+- ✅ Navigate returns error when url missing
+- ✅ Eval accepts javaScript param
+- ✅ Eval returns error when no script
+- ✅ Eval returns error when no handler
+- ✅ Snapshot returns error when no handler
+- ✅ A2UI push returns error when no jsonl
+- ✅ A2UI push raises event with jsonl content
+- ✅ A2UI reset raises event
+
+#### ScreenCapabilityTests (5 tests)
+- ✅ CanHandle screen.capture and screen.list
+- ✅ Capture returns error when no handler
+- ✅ Capture calls handler with parsed args (format, maxWidth, quality, screenIndex)
+- ✅ List returns error when no handler
+- ✅ List returns screens when handler set
+
+#### CameraCapabilityTests (7 tests)
+- ✅ CanHandle camera.list and camera.snap
+- ✅ List returns error when no handler
+- ✅ List returns cameras when handler set
+- ✅ Snap returns error when no handler
+- ✅ Snap calls handler with parsed args (deviceId, format, maxWidth, quality)
+- ✅ Snap uses defaults when args missing
+- ✅ Snap returns error when handler throws
+
+### DeviceIdentityTests.cs (12 tests)
+
+#### DeviceIdentityUnitTests (3 tests)
+- ✅ PairingStatusEventArgs properties
+- ✅ PairingStatusEventArgs null message
+- ✅ PairingStatus enum values
+
+#### DeviceIdentityIntegrationTests (9 tests, opt-in)
+- ✅ Generate new keypair (64-char hex device ID)
+- ✅ Load existing keypair from disk
+- ✅ SignPayload deterministic for same inputs
+- ✅ SignPayload differs for different nonces
+- ✅ BuildDebugPayload format (v2|deviceId|clientId|node|node||ts|token|nonce)
+- ✅ StoreDeviceToken persists across reload
+- ✅ Different dirs produce different identities
+- ✅ SignPayload throws before Initialize
+- ✅ PublicKeyBase64Url is valid base64url (no +/=//)
+
 ### ModelsTests.cs (68 tests)
 
 #### AgentActivityTests (13 tests)
@@ -161,7 +226,7 @@ When adding new functionality to `OpenClaw.Shared`:
 ## Dependencies
 
 - xUnit 2.9.3 - Test framework
-- .NET 9.0 - Runtime
+- .NET 10.0 - Runtime
 - OpenClaw.Shared library
 
 ## License
