@@ -475,6 +475,8 @@ public class NodeService : IDisposable
         _nodeClient = null;
         try { client?.Dispose(); } catch { /* ignore */ }
         
+        try { _cameraCaptureService?.Dispose(); } catch { /* ignore */ }
+        
         if (_canvasWindow != null && !_canvasWindow.IsClosed)
         {
             var window = _canvasWindow;

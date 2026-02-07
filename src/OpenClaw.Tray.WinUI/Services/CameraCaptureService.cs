@@ -19,7 +19,7 @@ namespace OpenClawTray.Services;
 /// <summary>
 /// Camera capture service using Windows.Media.Capture
 /// </summary>
-public class CameraCaptureService
+public class CameraCaptureService : IDisposable
 {
     private readonly IOpenClawLogger _logger;
     private readonly SemaphoreSlim _captureLock = new(1, 1);
@@ -27,6 +27,11 @@ public class CameraCaptureService
     public CameraCaptureService(IOpenClawLogger logger)
     {
         _logger = logger;
+    }
+    
+    public void Dispose()
+    {
+        _captureLock.Dispose();
     }
     
     public async Task<CameraInfo[]> ListCamerasAsync()

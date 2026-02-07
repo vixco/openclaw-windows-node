@@ -835,12 +835,13 @@ public class WindowsNodeClient : IDisposable
         if (_disposed) return;
         _disposed = true;
         
-        _cts.Cancel();
+        try { _cts.Cancel(); } catch { /* ignore */ }
         
         var ws = _webSocket;
         _webSocket = null;
         try { ws?.Dispose(); } catch { /* ignore */ }
         
-        try { _cts.Dispose(); } catch { /* ignore */ }
+        // Don't dispose _cts immediately — reconnect loop may still reference it.
+        // It will be GC'd after all pending tasks complete.
     }
 }

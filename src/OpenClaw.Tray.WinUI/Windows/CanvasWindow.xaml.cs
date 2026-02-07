@@ -219,12 +219,15 @@ public sealed partial class CanvasWindow : WindowEx
     }
     
     /// <summary>
-    /// Load HTML content directly (logs for audit)
+    /// Load HTML content directly (sanitizes embedded navigation)
     /// </summary>
     public void LoadHtml(string html)
     {
         // Log HTML loading for audit (truncated)
         System.Diagnostics.Debug.WriteLine($"[Canvas] Loading HTML content ({html.Length} chars)");
+        
+        // Sanitize: strip iframes/objects/embeds that could bypass URL validation
+        html = SanitizeHtml(html);
         
         if (_isWebViewInitialized)
         {
@@ -234,6 +237,23 @@ public sealed partial class CanvasWindow : WindowEx
         {
             _pendingHtml = html;
         }
+    }
+    
+    /// <summary>
+    /// Strip dangerous embedded elements (iframe, object, embed, applet) from HTML.
+    /// This prevents bypassing URL validation via inline HTML content.
+    /// </summary>
+    private static string SanitizeHtml(string html)
+    {
+        // Remove <iframe>, <object>, <embed>, <applet> tags and their content
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, @"<\s*(iframe|object|embed|applet)\b[^>]*>.*?<\s*/\s*\1\s*>",
+            "<!-- blocked -->", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        // Remove self-closing variants
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html, @"<\s*(iframe|object|embed|applet)\b[^>]*/?\s*>",
+            "<!-- blocked -->", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return html;
     }
     
     /// <summary>
