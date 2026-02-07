@@ -52,6 +52,10 @@ dotnet build
 # Build WinUI (requires runtime identifier for WebView2 support)
 dotnet build src/OpenClaw.Tray.WinUI/OpenClaw.Tray.WinUI.csproj -r win-arm64  # ARM64
 dotnet build src/OpenClaw.Tray.WinUI/OpenClaw.Tray.WinUI.csproj -r win-x64    # x64
+
+# Build MSIX package (for camera/mic consent prompts)
+dotnet build src/OpenClaw.Tray.WinUI -r win-arm64 -p:PackageMsix=true  # ARM64 MSIX
+dotnet build src/OpenClaw.Tray.WinUI -r win-x64 -p:PackageMsix=true    # x64 MSIX
 ```
 
 ### Run Tray App

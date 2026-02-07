@@ -103,6 +103,98 @@ jobs:
         name: openclaw-tray-${{ matrix.rid }}
         path: publish/
 
+  build-msix:
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        rid: [win-x64, win-arm64]
+        include:
+          - rid: win-x64
+            platform: x64
+          - rid: win-arm64
+            platform: ARM64
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Restore
+      run: dotnet restore src/OpenClaw.Tray.WinUI -r ${{ matrix.rid }}
+
+    - name: Patch MSIX manifest version
+      shell: pwsh
+      run: |
+        $version = "${{ needs.test.outputs.majorMinorPatch }}.0"
+        $manifest = "src/OpenClaw.Tray.WinUI/Package.appxmanifest"
+        [xml]$xml = Get-Content $manifest
+        $xml.Package.Identity.Version = $version
+        $xml.Save((Resolve-Path $manifest))
+        Write-Host "Patched MSIX manifest version to $version"
+
+    - name: Build MSIX Package
+      run: >
+        msbuild src/OpenClaw.Tray.WinUI/OpenClaw.Tray.WinUI.csproj
+        /p:Configuration=Release
+        /p:RuntimeIdentifier=${{ matrix.rid }}
+        /p:Platform=${{ matrix.platform }}
+        /p:PackageMsix=true
+        /p:GenerateAppxPackageOnBuild=true
+        /p:AppxPackageSigningEnabled=false
+        /p:AppxBundle=Never
+        /p:UapAppxPackageBuildMode=SideloadOnly
+        /p:Version=${{ needs.test.outputs.majorMinorPatch }}
+        /p:AppxPackageDir=AppPackages\
+
+    - name: Find MSIX Package
+      id: find-msix
+      shell: pwsh
+      run: |
+        $msix = Get-ChildItem -Path src/OpenClaw.Tray.WinUI/AppPackages -Recurse -Filter "*.msix" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $msix) {
+          Write-Error "No MSIX package found in AppPackages directory"
+          exit 1
+        }
+        Write-Host "Found: $($msix.FullName)"
+        echo "msix_path=$($msix.FullName)" >> $env:GITHUB_OUTPUT
+        echo "msix_name=$($msix.Name)" >> $env:GITHUB_OUTPUT
+
+    - name: Sign MSIX
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: azure/login@v2
+      with:
+        creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}"}'
+
+    - name: Sign MSIX Package
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: azure/trusted-signing-action@v1
+      with:
+        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+        endpoint: https://wus2.codesigning.azure.net/
+        trusted-signing-account-name: hanselman
+        certificate-profile-name: WindowsEdgeLight
+        files-folder: src/OpenClaw.Tray.WinUI/AppPackages
+        files-folder-filter: msix
+        files-folder-depth: 3
+        file-digest: SHA256
+        timestamp-rfc3161: http://timestamp.acs.microsoft.com
+        timestamp-digest: SHA256
+
+    - name: Upload MSIX Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: openclaw-msix-${{ matrix.rid }}
+        path: ${{ steps.find-msix.outputs.msix_path }}
+
   build-extension:
     needs: test
     runs-on: windows-latest
@@ -131,7 +223,7 @@ jobs:
         path: src/OpenClaw.CommandPalette/bin/${{ matrix.platform }}/Debug/
 
   release:
-    needs: [test, build, build-extension]
+    needs: [test, build, build-msix, build-extension]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     permissions:
@@ -163,6 +255,26 @@ jobs:
       with:
         name: openclaw-commandpalette-arm64
         path: artifacts/cmdpal-arm64
+
+    - name: Download win-x64 MSIX artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: openclaw-msix-win-x64
+        path: artifacts/msix-x64
+
+    - name: Download win-arm64 MSIX artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: openclaw-msix-win-arm64
+        path: artifacts/msix-arm64
+
+    - name: Rename MSIX packages
+      shell: pwsh
+      run: |
+        $x64 = Get-ChildItem -Path artifacts/msix-x64 -Filter "*.msix" | Select-Object -First 1
+        $arm64 = Get-ChildItem -Path artifacts/msix-arm64 -Filter "*.msix" | Select-Object -First 1
+        if ($x64) { Copy-Item $x64.FullName "OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-x64.msix" }
+        if ($arm64) { Copy-Item $arm64.FullName "OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-arm64.msix" }
 
     # Create ZIP files for Updatum auto-update (needs "win-x64" in filename)
     - name: Create Release ZIPs
@@ -229,6 +341,8 @@ jobs:
           Output/OpenClawTray-Setup-arm64.exe
           OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-x64.zip
           OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-arm64.zip
+          OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-x64.msix
+          OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-arm64.msix
         body: |
           ## OpenClaw Windows Hub ${{ github.ref_name }}
 
@@ -237,12 +351,15 @@ jobs:
           - **Installer (ARM64)**: `OpenClawTray-Setup-arm64.exe` - Windows on ARM (Surface, etc.)
           - **Portable x64**: `OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-x64.zip`
           - **Portable ARM64**: `OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-arm64.zip`
+          - **MSIX x64**: `OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-x64.msix` - Packaged (camera/mic consent)
+          - **MSIX ARM64**: `OpenClawTray-${{ needs.test.outputs.majorMinorPatch }}-win-arm64.msix` - Packaged (camera/mic consent)
 
           ### Features
           - 🦞 System tray integration with gateway status
           - 🎯 PowerToys Command Palette extension (optional)
           - 🔄 Auto-updates from GitHub Releases
           - ✅ Code-signed with Azure Trusted Signing
+          - 📦 MSIX package available for native camera/microphone consent prompts
 
           ### Requirements
           - Windows 10 version 1903 or later
@@ -251,7 +368,7 @@ jobs:
           - PowerToys (for Command Palette extension)
 
           ### Quick Start
-          1. Run the installer for your architecture
+          1. Run the installer for your architecture (or sideload the MSIX for camera consent)
           2. Optionally enable Command Palette extension during install
           3. Launch from Start Menu or system tray
           4. Right-click tray icon → Settings to configure

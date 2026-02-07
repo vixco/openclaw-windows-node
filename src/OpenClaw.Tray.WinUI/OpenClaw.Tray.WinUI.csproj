@@ -6,15 +6,31 @@
     <UseWinUI>true</UseWinUI>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <EnableMsixTooling>true</EnableMsixTooling>
     <ApplicationIcon>Assets\openclaw.ico</ApplicationIcon>
     <RootNamespace>OpenClawTray</RootNamespace>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
     <FileVersion>0.2.0</FileVersion>
     <AssemblyVersion>0.2.0</AssemblyVersion>
+  </PropertyGroup>
+
+  <!-- Unpackaged (default): traditional EXE distribution via Inno Setup -->
+  <PropertyGroup Condition="'$(PackageMsix)' != 'true'">
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- MSIX packaged: enables camera/mic consent prompts, package identity -->
+  <PropertyGroup Condition="'$(PackageMsix)' == 'true'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <AppxBundle>Never</AppxBundle>
+    <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>
+    <!-- Sync MSIX package version with build version (requires 4-part: X.Y.Z.0).
+         CI passes majorMinorPatch (e.g. 0.3.1) and patches Package.appxmanifest before build. -->
   </PropertyGroup>
 
   <ItemGroup>
@@ -33,8 +49,8 @@
     <Content Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- Copy WebView2Loader.dll to output root for unpackaged app -->
-  <Target Name="CopyWebView2Loader" AfterTargets="Build">
+  <!-- Copy WebView2Loader.dll to output root for unpackaged app (not needed for MSIX) -->
+  <Target Name="CopyWebView2Loader" AfterTargets="Build" Condition="'$(PackageMsix)' != 'true'">
     <PropertyGroup>
       <!-- Detect ARM64 via RuntimeIdentifier, Platform, or processor architecture -->
       <IsArm64Build Condition="'$(Platform)' == 'ARM64' OR '$(RuntimeIdentifier)' == 'win-arm64' OR '$(PROCESSOR_ARCHITECTURE)' == 'ARM64'">true</IsArm64Build>

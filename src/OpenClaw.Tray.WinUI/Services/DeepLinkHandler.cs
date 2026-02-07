@@ -14,6 +14,13 @@ public static class DeepLinkHandler
 
     public static void RegisterUriScheme()
     {
+        // MSIX-packaged apps declare the protocol in Package.appxmanifest — skip registry
+        if (Helpers.PackageHelper.IsPackaged)
+        {
+            Logger.Info("URI scheme handled by MSIX manifest (packaged mode)");
+            return;
+        }
+
         try
         {
             var exePath = Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location;

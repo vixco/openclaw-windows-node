@@ -68,6 +68,7 @@ public partial class App : Application
     private Window? _keepAliveWindow;
 
     private string[]? _startupArgs;
+    private string? _pendingProtocolUri;
     private static readonly string DataPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "OpenClawTray");
@@ -178,23 +179,51 @@ public partial class App : Application
         catch { }
     }
 
+    /// <summary>
+    /// Check if the app was launched via protocol activation (MSIX deep link).
+    /// In WinUI 3, protocol activation is retrieved via AppInstance, not OnActivated.
+    /// </summary>
+    private static string? GetProtocolActivationUri()
+    {
+        try
+        {
+            var activatedArgs = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
+            if (activatedArgs.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.Protocol
+                && activatedArgs.Data is global::Windows.ApplicationModel.Activation.IProtocolActivatedEventArgs protocolArgs)
+            {
+                return protocolArgs.Uri?.ToString();
+            }
+        }
+        catch { /* Not activated via protocol, or not packaged */ }
+        return null;
+    }
+
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         _startupArgs = Environment.GetCommandLineArgs();
         _dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
+        // Check for protocol activation (MSIX packaged apps receive deep links this way)
+        string? protocolUri = GetProtocolActivationUri();
+
         // Single instance check - keep mutex alive for app lifetime
         _mutex = new Mutex(true, "OpenClawTray", out bool createdNew);
         if (!createdNew)
         {
-            // Forward deep link args to running instance
-            if (_startupArgs.Length > 1 && _startupArgs[1].StartsWith("openclaw://", StringComparison.OrdinalIgnoreCase))
+            // Forward deep link args to running instance (command-line or protocol activation)
+            var deepLink = protocolUri
+                ?? (_startupArgs.Length > 1 && _startupArgs[1].StartsWith("openclaw://", StringComparison.OrdinalIgnoreCase)
+                    ? _startupArgs[1] : null);
+            if (deepLink != null)
             {
-                SendDeepLinkToRunningInstance(_startupArgs[1]);
+                SendDeepLinkToRunningInstance(deepLink);
             }
             Exit();
             return;
         }
+
+        // Store protocol URI for processing after setup
+        _pendingProtocolUri = protocolUri;
 
         // Register URI scheme on first run
         DeepLinkHandler.RegisterUriScheme();
@@ -249,10 +278,13 @@ public partial class App : Application
             _globalHotkey.Register();
         }
 
-        // Process startup deep link
-        if (_startupArgs.Length > 1 && _startupArgs[1].StartsWith("openclaw://", StringComparison.OrdinalIgnoreCase))
+        // Process startup deep link (command-line or MSIX protocol activation)
+        var startupDeepLink = _pendingProtocolUri
+            ?? (_startupArgs.Length > 1 && _startupArgs[1].StartsWith("openclaw://", StringComparison.OrdinalIgnoreCase)
+                ? _startupArgs[1] : null);
+        if (startupDeepLink != null)
         {
-            HandleDeepLink(_startupArgs[1]);
+            HandleDeepLink(startupDeepLink);
         }
 
         Logger.Info("Application started (WinUI 3)");
