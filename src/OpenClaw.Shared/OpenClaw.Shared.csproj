@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="OpenClaw.Shared.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="NSec.Cryptography" Version="25.4.0" />
   </ItemGroup>
 

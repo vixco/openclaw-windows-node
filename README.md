@@ -130,7 +130,7 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
 
 | Capability | Commands | Description |
 |------------|----------|-------------|
-| **System** | `system.notify` | Show Windows toast notifications |
+| **System** | `system.notify`, `system.run`, `system.execApprovals.get`, `system.execApprovals.set` | Show Windows toast notifications, execute commands with policy controls |
 | **Canvas** | `canvas.present`, `canvas.hide`, `canvas.navigate`, `canvas.eval`, `canvas.snapshot`, `canvas.a2ui.push` (investigating), `canvas.a2ui.reset` (investigating) | Display and control a WebView2 window |
 | **Screen** | `screen.capture`, `screen.list` | Capture screenshots |
 | **Camera** | `camera.list`, `camera.snap` | Enumerate cameras and capture a still photo |
@@ -150,6 +150,9 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
      "nodes": {
        "allowCommands": [
          "system.notify",
+         "system.run",
+          "system.execApprovals.get",
+          "system.execApprovals.set",
          "canvas.present",
          "canvas.hide",
          "canvas.navigate",
@@ -189,8 +192,19 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
 
     # Take a photo (NV12/MediaCapture fallback)
     openclaw nodes invoke --node <id> --command camera.snap --params '{"deviceId":"<device-id>","format":"jpeg","quality":80}'
+
+    # Execute a command on the Windows node
+    openclaw nodes invoke --node <id> --command system.run --params '{"command":"Get-Process | Select -First 5","shell":"powershell","timeout":10000}'
+
+    # View exec approval policy
+    openclaw nodes invoke --node <id> --command system.execApprovals.get
+
+    # Update exec approval policy (add custom rules)
+    openclaw nodes invoke --node <id> --command system.execApprovals.set --params '{"rules":[{"pattern":"echo *","action":"allow"},{"pattern":"*","action":"deny"}],"defaultAction":"deny"}'
     ```
     > 📷 **Camera permission**: Desktop builds rely on Windows Privacy settings. Packaged MSIX builds will show the system consent prompt.
+    
+    > 🔒 **Exec Policy**: `system.run` is gated by an approval policy (saved to `exec-policy.json`). Default rules allow read-only commands (echo, Get-*, hostname, etc.) and deny destructive operations (rm, shutdown, registry edits). Use `system.execApprovals.get/set` to view/modify rules remotely.
 
 #### Node Status in Tray Menu
 

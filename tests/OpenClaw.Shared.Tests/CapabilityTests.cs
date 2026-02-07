@@ -24,7 +24,8 @@ public class SystemCapabilityTests
     {
         var cap = new SystemCapability(NullLogger.Instance);
         Assert.True(cap.CanHandle("system.notify"));
-        Assert.False(cap.CanHandle("system.run"));
+        Assert.True(cap.CanHandle("system.run"));
+        Assert.False(cap.CanHandle("system.unknown"));
         Assert.Equal("system", cap.Category);
     }
 

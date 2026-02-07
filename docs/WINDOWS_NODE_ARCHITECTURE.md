@@ -250,7 +250,8 @@ Niche scenario. If the "server" must be Windows for some reason, this works but 
 | `camera.clip` | ✅ | ✅ | ✅ | ❌ | **✅** | MediaCapture + MediaEncoding |
 | `camera.list` | ✅ | ✅ | ✅ | ❌ | **✅** | DeviceInformation.FindAllAsync |
 | `screen.record` | ✅ CGWindowListCreateImage | ✅ ReplayKit | ✅ MediaProjection | ❌ | **✅** | Windows.Graphics.Capture |
-| `system.run` | ✅ | ❌ | ❌ | ✅ | **✅** | Process.Start (cmd/pwsh) |
+| `system.run` | ✅ | ❌ | ❌ | ✅ | **✅** | Process.Start (cmd/pwsh) + ExecApprovalPolicy |
+| `system.execApprovals` | ❌ | ❌ | ❌ | ❌ | **✅** | JSON policy file (exec-policy.json) |
 | `system.notify` | ✅ NSUserNotification | ✅ UNUserNotification | ✅ NotificationManager | ❌ | **✅** | ToastNotificationManager |
 | `location.get` | ✅ CLLocationManager | ✅ CLLocationManager | ✅ FusedLocation | ❌ | **⚠️** | Windows.Devices.Geolocation |
 | `sms.send` | ❌ | ❌ | ✅ | ❌ | ❌ | N/A |
@@ -556,27 +557,30 @@ The node protocol requires a stable device identity (`device.id`) derived from a
 ### Phase 1: Tray App as Native Windows Node — Notifications + Canvas
 **Priority: HIGH | Effort: Medium | Impact: Huge**
 
-- [ ] Implement node protocol in `OpenClaw.Shared` (connect with `role: "node"`, handle `node.invoke`)
-- [ ] Device identity + keypair generation + pairing flow
-- [ ] `system.notify` — agent can request Windows toast notifications
-- [ ] `canvas.present` / `canvas.hide` — floating WebView2 canvas window
-- [ ] `canvas.navigate` / `canvas.eval` / `canvas.snapshot` — full canvas support
-- [ ] `canvas.a2ui.push` / `canvas.a2ui.reset` — A2UI rendering
-- [ ] `system.run` — exec commands on Windows (PowerShell/cmd) with exec approvals
+- [x] Implement node protocol in `OpenClaw.Shared` (connect with `role: "node"`, handle `node.invoke`)
+- [x] Device identity + keypair generation + pairing flow
+- [x] `system.notify` — agent can request Windows toast notifications
+- [x] `canvas.present` / `canvas.hide` — floating WebView2 canvas window
+- [x] `canvas.navigate` / `canvas.eval` / `canvas.snapshot` — full canvas support
+- [ ] `canvas.a2ui.push` / `canvas.a2ui.reset` — A2UI rendering (investigating: agent tool policy blocks)
+- [x] `system.run` — exec commands on Windows (PowerShell/cmd) with ICommandRunner abstraction
+- [x] `system.execApprovals.get/set` — remote-manageable exec approval policy
 - [ ] Settings UI for node capabilities (enable/disable camera, screen, etc.)
-- [ ] Resolve #9 (WebView2 ARM64) — required for canvas
+- [x] Resolve #9 (WebView2 ARM64) — required for canvas
 
 **Depends on:** #5 (Canvas Panel), #9 (WebView2 ARM64)
 
 ### Phase 2: Screen Capture + Camera
 **Priority: HIGH | Effort: Medium | Impact: High**
 
-- [ ] `camera.list` — enumerate Windows cameras
-- [ ] `camera.snap` — capture photo from webcam
-- [ ] `camera.clip` — record short video clip
+- [x] `camera.list` — enumerate Windows cameras (DeviceInformation.FindAllAsync)
+- [x] `camera.snap` — capture photo from webcam (MediaCapture + frame reader fallback)
+- [ ] `camera.clip` — record short video clip (MediaCapture + MediaEncoding)
 - [ ] `screen.record` — capture Windows desktop via Graphics Capture API
-- [ ] Permission prompts (camera, screen capture consent; MSIX capability prompts)
-- [ ] Multi-monitor support for screen capture (`--screen <index>`)
+- [x] `screen.capture` — screenshot via Windows.Graphics.Capture
+- [x] `screen.list` — enumerate monitors with bounds/working area
+- [x] Permission prompts (camera: UnauthorizedAccessException → toast; future MSIX consent)
+- [x] Multi-monitor support for screen capture (`screenIndex` param)
 
 ### Phase 3: Native Windows Gateway (Exploration)
 **Priority: MEDIUM | Effort: High | Impact: High**

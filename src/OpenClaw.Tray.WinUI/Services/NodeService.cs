@@ -104,9 +104,11 @@ public class NodeService : IDisposable
     {
         if (_nodeClient == null) return;
         
-        // System capability (notifications)
+        // System capability (notifications + command execution)
         _systemCapability = new SystemCapability(_logger);
         _systemCapability.NotifyRequested += OnSystemNotify;
+        _systemCapability.SetCommandRunner(new LocalCommandRunner(_logger));
+        _systemCapability.SetApprovalPolicy(new ExecApprovalPolicy(_dataPath, _logger));
         _nodeClient.RegisterCapability(_systemCapability);
         
         // Canvas capability
