@@ -74,7 +74,7 @@ public static class Logger
     private static void Write(string level, string message)
     {
         var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{level}] {message}";
-        Debug.WriteLine(line);
+        System.Diagnostics.Debug.WriteLine(line);
 
         try
         {
