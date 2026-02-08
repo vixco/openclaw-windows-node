@@ -11,7 +11,7 @@
        Update the Publisher= value below to match. -->
   <Identity
     Name="OpenClaw.Tray"
-    Publisher="CN=Scott Hanselman"
+    Publisher="CN=Scott Hanselman, O=Scott Hanselman, L=Forest Grove, S=Oregon, C=US"
     Version="0.3.0.0" />
 
   <Properties>
