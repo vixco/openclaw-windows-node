@@ -89,7 +89,7 @@ jobs:
         azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
         azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: https://wus2.codesigning.azure.net/
-        trusted-signing-account-name: hanselman
+        signing-account-name: hanselman
         certificate-profile-name: WindowsEdgeLight
         files-folder: publish
         files-folder-filter: exe
@@ -182,7 +182,7 @@ jobs:
         azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
         azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: https://wus2.codesigning.azure.net/
-        trusted-signing-account-name: hanselman
+        signing-account-name: hanselman
         certificate-profile-name: WindowsEdgeLight
         files-folder: src/OpenClaw.Tray.WinUI/AppPackages
         files-folder-filter: msix
@@ -331,7 +331,7 @@ jobs:
         azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
         azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
         endpoint: https://wus2.codesigning.azure.net/
-        trusted-signing-account-name: hanselman
+        signing-account-name: hanselman
         certificate-profile-name: WindowsEdgeLight
         files-folder: Output
         files-folder-filter: exe
