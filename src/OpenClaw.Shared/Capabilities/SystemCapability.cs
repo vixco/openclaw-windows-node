@@ -91,7 +91,48 @@ public class SystemCapability : NodeCapabilityBase
             return Error("Command execution not available");
         }
         
-        var command = GetStringArg(request.Args, "command");
+        // Per OpenClaw spec, "command" is an argv array (e.g. ["echo","Hello"]).
+        // Also accept a plain string for backward compatibility.
+        string? command = null;
+        string[]? args = null;
+        
+        if (request.Args.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
+            request.Args.TryGetProperty("command", out var cmdEl))
+        {
+            if (cmdEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                var argv = new List<string>();
+                foreach (var item in cmdEl.EnumerateArray())
+                {
+                    if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                        argv.Add(item.GetString() ?? "");
+                }
+                if (argv.Count > 0)
+                {
+                    command = argv[0];
+                    args = argv.Count > 1 ? argv.Skip(1).ToArray() : null;
+                }
+            }
+            else if (cmdEl.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                command = cmdEl.GetString();
+                
+                // When command is a string, also check for separate "args" array
+                if (request.Args.TryGetProperty("args", out var argsEl) &&
+                    argsEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    var list = new List<string>();
+                    foreach (var item in argsEl.EnumerateArray())
+                    {
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                            list.Add(item.GetString() ?? "");
+                    }
+                    if (list.Count > 0)
+                        args = list.ToArray();
+                }
+            }
+        }
+        
         if (string.IsNullOrWhiteSpace(command))
         {
             return Error("Missing command parameter");
@@ -99,22 +140,8 @@ public class SystemCapability : NodeCapabilityBase
         
         var shell = GetStringArg(request.Args, "shell");
         var cwd = GetStringArg(request.Args, "cwd");
-        var timeoutMs = GetIntArg(request.Args, "timeout", 30000);
-        
-        // Parse args array if present
-        string[]? args = null;
-        if (request.Args.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
-            request.Args.TryGetProperty("args", out var argsEl) &&
-            argsEl.ValueKind == System.Text.Json.JsonValueKind.Array)
-        {
-            var list = new List<string>();
-            foreach (var item in argsEl.EnumerateArray())
-            {
-                if (item.ValueKind == System.Text.Json.JsonValueKind.String)
-                    list.Add(item.GetString() ?? "");
-            }
-            args = list.ToArray();
-        }
+        var timeoutMs = GetIntArg(request.Args, "timeoutMs", 
+            GetIntArg(request.Args, "timeout", 30000));
         
         // Parse env dict if present
         Dictionary<string, string>? env = null;

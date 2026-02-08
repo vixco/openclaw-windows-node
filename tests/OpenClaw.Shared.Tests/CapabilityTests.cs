@@ -85,6 +85,138 @@ public class SystemCapabilityTests
         Assert.False(res.Ok);
         Assert.Contains("Unknown command", res.Error);
     }
+
+    [Fact]
+    public async Task Run_AcceptsCommandAsArray()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var runner = new FakeCommandRunner();
+        cap.SetCommandRunner(runner);
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "r1",
+            Command = "system.run",
+            Args = Parse("""{"command":["echo","hello","world"]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.Equal("echo", runner.LastRequest!.Command);
+        Assert.Equal(new[] { "hello", "world" }, runner.LastRequest.Args);
+    }
+
+    [Fact]
+    public async Task Run_AcceptsCommandAsString()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var runner = new FakeCommandRunner();
+        cap.SetCommandRunner(runner);
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "r2",
+            Command = "system.run",
+            Args = Parse("""{"command":"hostname"}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.Equal("hostname", runner.LastRequest!.Command);
+        Assert.Null(runner.LastRequest.Args);
+    }
+
+    [Fact]
+    public async Task Run_AcceptsSingleElementArray()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var runner = new FakeCommandRunner();
+        cap.SetCommandRunner(runner);
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "r3",
+            Command = "system.run",
+            Args = Parse("""{"command":["hostname"]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.Equal("hostname", runner.LastRequest!.Command);
+        Assert.Null(runner.LastRequest.Args);
+    }
+
+    [Fact]
+    public async Task Run_ReturnsError_WhenNoCommand()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        cap.SetCommandRunner(new FakeCommandRunner());
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "r4",
+            Command = "system.run",
+            Args = Parse("""{}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("Missing command", res.Error);
+    }
+
+    [Fact]
+    public async Task Run_ReturnsError_WhenNoRunner()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var req = new NodeInvokeRequest
+        {
+            Id = "r5",
+            Command = "system.run",
+            Args = Parse("""{"command":["echo","test"]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("not available", res.Error);
+    }
+
+    [Fact]
+    public async Task Run_ReadsTimeoutMs()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var runner = new FakeCommandRunner();
+        cap.SetCommandRunner(runner);
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "r6",
+            Command = "system.run",
+            Args = Parse("""{"command":["test"],"timeoutMs":60000}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.Equal(60000, runner.LastRequest!.TimeoutMs);
+    }
+
+    private class FakeCommandRunner : ICommandRunner
+    {
+        public string Name => "fake";
+        public CommandRequest? LastRequest { get; private set; }
+
+        public Task<CommandResult> RunAsync(CommandRequest request, CancellationToken ct = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(new CommandResult
+            {
+                Stdout = "ok",
+                Stderr = "",
+                ExitCode = 0,
+                TimedOut = false,
+                DurationMs = 1
+            });
+        }
+    }
 }
 
 public class CanvasCapabilityTests
