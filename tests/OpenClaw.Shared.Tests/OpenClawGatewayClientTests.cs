@@ -71,6 +71,7 @@ public class OpenClawGatewayClientTests
         public List<string> Logs { get; } = new();
 
         public void Info(string message) => Logs.Add($"INFO: {message}");
+        public void Debug(string message) => Logs.Add($"DEBUG: {message}");
         public void Warn(string message) => Logs.Add($"WARN: {message}");
         public void Error(string message, Exception? ex = null) => Logs.Add($"ERROR: {message}");
     }

@@ -232,8 +232,8 @@ public class WindowsNodeClient : IDisposable
     {
         try
         {
-            // DEBUG: Log all incoming messages
-            _logger.Info($"[NODE RX] {json}");
+            // Log raw messages at debug level (visible in dbgview, not in log file noise)
+            _logger.Debug($"[NODE RX] {json}");
             
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -244,7 +244,7 @@ public class WindowsNodeClient : IDisposable
                 return;
             }
             var type = typeProp.GetString();
-            _logger.Info($"[NODE] Processing message type: {type}");
+            _logger.Debug($"[NODE] Processing message type: {type}");
             
             switch (type)
             {
@@ -473,16 +473,16 @@ public class WindowsNodeClient : IDisposable
                 signature = _deviceIdentity.SignPayload(nonce, signedAt, ClientId, authToken);
                 
                 // Full debug output for verification
-                _logger.Info("=== Debug Info ===");
-                _logger.Info($"Device ID: {_deviceIdentity.DeviceId}");
-                _logger.Info($"Public Key: {_deviceIdentity.PublicKeyBase64Url}");
-                _logger.Info($"Client ID: {ClientId}");
-                _logger.Info($"Auth Token (in payload): {authToken?.Substring(0, Math.Min(16, authToken?.Length ?? 0))}...");
-                _logger.Info($"Nonce: {nonce}");
-                _logger.Info($"SignedAt: {signedAt}");
-                _logger.Info($"Payload: {debugPayload.Substring(0, Math.Min(100, debugPayload.Length))}...");
-                _logger.Info($"Signature: {signature}");
-                _logger.Info("==================");
+                _logger.Debug("=== Debug Info ===");
+                _logger.Debug($"Device ID: {_deviceIdentity.DeviceId}");
+                _logger.Debug($"Public Key: {_deviceIdentity.PublicKeyBase64Url}");
+                _logger.Debug($"Client ID: {ClientId}");
+                _logger.Debug($"Auth Token (in payload): {authToken?.Substring(0, Math.Min(16, authToken?.Length ?? 0))}...");
+                _logger.Debug($"Nonce: {nonce}");
+                _logger.Debug($"SignedAt: {signedAt}");
+                _logger.Debug($"Payload: {debugPayload.Substring(0, Math.Min(100, debugPayload.Length))}...");
+                _logger.Debug($"Signature: {signature}");
+                _logger.Debug("==================");
             }
             catch (Exception ex)
             {
@@ -530,7 +530,7 @@ public class WindowsNodeClient : IDisposable
         };
         
         var json = JsonSerializer.Serialize(msg, new JsonSerializerOptions { WriteIndented = true });
-        _logger.Info($"[NODE TX FULL JSON]:\n{json}");
+        _logger.Debug($"[NODE TX FULL JSON]:\n{json}");
         await SendRawAsync(JsonSerializer.Serialize(msg));  // Send compact version
         _logger.Info($"Sent node registration with device ID: {_deviceIdentity.DeviceId.Substring(0, 16)}..., paired: {isPaired}");
     }
@@ -538,7 +538,7 @@ public class WindowsNodeClient : IDisposable
     private void HandleResponse(JsonElement root)
     {
         // DEBUG: Log entire response structure
-        _logger.Info($"[NODE] HandleResponse - ok: {(root.TryGetProperty("ok", out var okVal) ? okVal.ToString() : "missing")}");
+        _logger.Debug($"[NODE] HandleResponse - ok: {(root.TryGetProperty("ok", out var okVal) ? okVal.ToString() : "missing")}");
         
         if (!root.TryGetProperty("payload", out var payload))
         {
@@ -546,7 +546,7 @@ public class WindowsNodeClient : IDisposable
             return;
         }
         
-        _logger.Info($"[NODE] Response payload: {payload.ToString().Substring(0, Math.Min(200, payload.ToString().Length))}...");
+        _logger.Debug($"[NODE] Response payload: {payload.ToString().Substring(0, Math.Min(200, payload.ToString().Length))}...");
         
         // Handle hello-ok (successful registration)
         if (payload.TryGetProperty("type", out var t) && t.GetString() == "hello-ok")

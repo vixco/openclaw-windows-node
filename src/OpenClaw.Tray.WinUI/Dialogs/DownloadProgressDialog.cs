@@ -18,7 +18,7 @@ public sealed class DownloadProgressDialog
     public void ShowAsync()
     {
         _window = new Window { Title = "Downloading Update..." };
-        _window.SystemBackdrop = new MicaBackdrop(); // Apply Mica backdrop
+        _window.SystemBackdrop = new MicaBackdrop();
         
         var panel = new StackPanel { Padding = new Thickness(20) };
         var progressText = new TextBlock { Text = "Downloading update...", Margin = new Thickness(0, 0, 0, 10) };
@@ -27,6 +27,13 @@ public sealed class DownloadProgressDialog
         panel.Children.Add(progressText);
         panel.Children.Add(progressBar);
         _window.Content = panel;
+        
+        // Size and center the window
+        _window.AppWindow.Resize(new global::Windows.Graphics.SizeInt32(400, 200));
+        var displayArea = Microsoft.UI.Windowing.DisplayArea.Primary;
+        var centerX = (displayArea.WorkArea.Width - 400) / 2;
+        var centerY = (displayArea.WorkArea.Height - 200) / 2;
+        _window.AppWindow.Move(new global::Windows.Graphics.PointInt32(centerX, centerY));
         
         _window.Activate();
     }

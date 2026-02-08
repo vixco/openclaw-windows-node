@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading.Tasks;
+using WinUIEx;
 
 namespace OpenClawTray.Dialogs;
 
@@ -15,91 +16,102 @@ public enum UpdateDialogResult
 
 /// <summary>
 /// Dialog showing available update with release notes.
+/// Built directly in a WindowEx (no ContentDialog/XamlRoot issues).
 /// </summary>
-public sealed class UpdateDialog
+public sealed class UpdateDialog : WindowEx
 {
-    private readonly string _version;
-    private readonly string _changelog;
-    private ContentDialog? _dialog;
-
-    public UpdateDialogResult Result { get; private set; } = UpdateDialogResult.RemindLater;
+    private readonly TaskCompletionSource<UpdateDialogResult> _tcs = new();
+    private UpdateDialogResult _result = UpdateDialogResult.RemindLater;
 
     public UpdateDialog(string version, string changelog)
     {
-        _version = version;
-        _changelog = changelog;
-    }
+        Title = "OpenClaw Update";
+        this.SetWindowSize(560, 420);
+        this.CenterOnScreen();
+        this.SetIcon("Assets\\openclaw.ico");
+        SystemBackdrop = new MicaBackdrop();
 
-    public async Task<UpdateDialogResult> ShowAsync()
-    {
-        // Create a temporary window to host the dialog
-        var window = new Window();
-        window.Content = new Grid();
-        window.SystemBackdrop = new MicaBackdrop(); // Apply Mica to host window
-        window.Activate();
-
-        // Build dialog content
-        var content = new StackPanel
+        var root = new Grid
         {
-            Spacing = 16,
-            MaxWidth = 450
+            Padding = new Thickness(32),
+            RowSpacing = 16
         };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        // Version header
-        content.Children.Add(new TextBlock
+        // Header
+        var header = new TextBlock
         {
-            Text = $"🎉 Version {_version} is available!",
+            Text = $"🎉 Version {version} is available!",
             Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"]
-        });
+        };
+        Grid.SetRow(header, 0);
+        root.Children.Add(header);
 
-        // Current version
+        // Content
+        var content = new StackPanel { Spacing = 12 };
+
         var currentVersion = typeof(UpdateDialog).Assembly.GetName().Version?.ToString() ?? "Unknown";
         content.Children.Add(new TextBlock
         {
             Text = $"Current version: {currentVersion}",
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
         });
 
-        // Changelog
         content.Children.Add(new TextBlock
         {
             Text = "What's New:",
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
         });
 
-        var changelogScroll = new ScrollViewer
+        content.Children.Add(new ScrollViewer
         {
             MaxHeight = 200,
             Content = new TextBlock
             {
-                Text = _changelog,
+                Text = changelog,
                 TextWrapping = TextWrapping.Wrap
             }
-        };
-        content.Children.Add(changelogScroll);
+        });
 
-        // Create dialog
-        _dialog = new ContentDialog
+        Grid.SetRow(content, 1);
+        root.Children.Add(content);
+
+        // Buttons
+        var buttonPanel = new StackPanel
         {
-            Title = "Update Available",
-            Content = content,
-            PrimaryButtonText = "Download & Install",
-            SecondaryButtonText = "Remind Me Later",
-            CloseButtonText = "Skip This Version",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = window.Content.XamlRoot
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8
         };
 
-        var dialogResult = await _dialog.ShowAsync();
-        window.Close();
+        var skipButton = new Button { Content = "Skip This Version" };
+        skipButton.Click += (s, e) => { _result = UpdateDialogResult.Skip; Close(); };
+        buttonPanel.Children.Add(skipButton);
 
-        Result = dialogResult switch
+        var laterButton = new Button { Content = "Remind Me Later" };
+        laterButton.Click += (s, e) => { _result = UpdateDialogResult.RemindLater; Close(); };
+        buttonPanel.Children.Add(laterButton);
+
+        var downloadButton = new Button
         {
-            ContentDialogResult.Primary => UpdateDialogResult.Download,
-            ContentDialogResult.Secondary => UpdateDialogResult.RemindLater,
-            _ => UpdateDialogResult.Skip
+            Content = "Download & Install",
+            Style = (Style)Application.Current.Resources["AccentButtonStyle"]
         };
+        downloadButton.Click += (s, e) => { _result = UpdateDialogResult.Download; Close(); };
+        buttonPanel.Children.Add(downloadButton);
 
-        return Result;
+        Grid.SetRow(buttonPanel, 2);
+        root.Children.Add(buttonPanel);
+
+        Content = root;
+        Closed += (s, e) => _tcs.TrySetResult(_result);
+    }
+
+    public new Task<UpdateDialogResult> ShowAsync()
+    {
+        Activate();
+        return _tcs.Task;
     }
 }

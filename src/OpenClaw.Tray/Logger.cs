@@ -23,6 +23,7 @@ public static class Logger
     public static IOpenClawLogger Instance { get; } = new LoggerAdapter();
 
     public static void Info(string message) => Write("INFO", message);
+    public static void Debug(string message) => Write("DEBUG", message);
     public static void Warn(string message) => Write("WARN", message);
     public static void Error(string message) => Write("ERROR", message);
     public static void Error(string message, Exception ex) => Write("ERROR", $"{message}: {ex.Message}\n  Stack: {ex.StackTrace}");
@@ -93,6 +94,7 @@ public static class Logger
     private class LoggerAdapter : IOpenClawLogger
     {
         public void Info(string message) => Logger.Info(message);
+        public void Debug(string message) => Logger.Debug(message);
         public void Warn(string message) => Logger.Warn(message);
         public void Error(string message, Exception? ex = null)
         {

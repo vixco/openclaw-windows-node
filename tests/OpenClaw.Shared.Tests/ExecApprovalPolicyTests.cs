@@ -470,8 +470,8 @@ internal class MockCommandRunner : ICommandRunner
 internal class ExecTestLogger : IOpenClawLogger
 {
     public void Info(string message) { }
+    public void Debug(string message) { }
     public void Warn(string message) { }
     public void Error(string message) { }
     public void Error(string message, Exception ex) { }
-    public void Debug(string message) { }
 }

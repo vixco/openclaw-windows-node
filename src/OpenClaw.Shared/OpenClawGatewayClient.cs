@@ -564,7 +564,7 @@ public class OpenClawGatewayClient : IDisposable
 
     private void HandleChatEvent(JsonElement root)
     {
-        _logger.Info($"Chat event received: {root.GetRawText().Substring(0, Math.Min(200, root.GetRawText().Length))}");
+        _logger.Debug($"Chat event received: {root.GetRawText().Substring(0, Math.Min(200, root.GetRawText().Length))}");
         
         if (!root.TryGetProperty("payload", out var payload)) return;
 
@@ -668,7 +668,7 @@ public class OpenClawGatewayClient : IDisposable
         var healthList = new List<ChannelHealth>();
         
         // Debug: log raw channel data
-        _logger.Info($"Raw channel health JSON: {channels.GetRawText()}");
+        _logger.Debug($"Raw channel health JSON: {channels.GetRawText()}");
 
         foreach (var prop in channels.EnumerateObject())
         {
@@ -771,7 +771,7 @@ public class OpenClawGatewayClient : IDisposable
                     // Detect main session from key pattern - "agent:main:main" ends with ":main"
                     var endsWithMain = sessionKey.EndsWith(":main");
                     session.IsMain = sessionKey == "main" || endsWithMain || sessionKey.Contains(":main:main");
-                    _logger.Info($"Session key={sessionKey}, endsWithMain={endsWithMain}, IsMain={session.IsMain}");
+                    _logger.Debug($"Session key={sessionKey}, endsWithMain={endsWithMain}, IsMain={session.IsMain}");
                     
                     // Value might be an object with session details or just a string status
                     if (item.ValueKind == JsonValueKind.Object)
