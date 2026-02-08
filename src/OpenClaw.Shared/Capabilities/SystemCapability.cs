@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -16,6 +17,7 @@ public class SystemCapability : NodeCapabilityBase
     {
         "system.notify",
         "system.run",
+        "system.which",
         "system.execApprovals.get",
         "system.execApprovals.set"
     };
@@ -57,6 +59,7 @@ public class SystemCapability : NodeCapabilityBase
         {
             "system.notify" => await HandleNotifyAsync(request),
             "system.run" => await HandleRunAsync(request),
+            "system.which" => HandleWhich(request),
             "system.execApprovals.get" => HandleExecApprovalsGet(),
             "system.execApprovals.set" => HandleExecApprovalsSet(request),
             _ => Error($"Unknown command: {request.Command}")
@@ -82,6 +85,77 @@ public class SystemCapability : NodeCapabilityBase
         });
         
         return Task.FromResult(Success(new { sent = true }));
+    }
+    
+    private NodeInvokeResponse HandleWhich(NodeInvokeRequest request)
+    {
+        var bins = new List<string>();
+        if (request.Args.ValueKind != System.Text.Json.JsonValueKind.Undefined &&
+            request.Args.TryGetProperty("bins", out var binsEl) &&
+            binsEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+        {
+            foreach (var item in binsEl.EnumerateArray())
+            {
+                if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    var bin = item.GetString()?.Trim();
+                    if (!string.IsNullOrEmpty(bin))
+                        bins.Add(bin);
+                }
+            }
+        }
+        
+        if (bins.Count == 0)
+            return Error("Missing bins parameter");
+        
+        var found = new Dictionary<string, string>();
+        foreach (var bin in bins)
+        {
+            var resolved = ResolveExecutable(bin);
+            if (resolved != null)
+                found[bin] = resolved;
+        }
+        
+        Logger.Info($"system.which: queried {bins.Count} bins, found {found.Count}");
+        return Success(new { bins = found });
+    }
+    
+    /// <summary>
+    /// Resolve an executable name to its full path by searching PATH directories.
+    /// Matches OpenClaw upstream behavior: rejects paths with separators, checks PATHEXT on Windows.
+    /// </summary>
+    internal static string? ResolveExecutable(string bin)
+    {
+        // Reject anything that looks like a path
+        if (bin.Contains('/') || bin.Contains('\\'))
+            return null;
+        
+        var extensions = new List<string>();
+        if (OperatingSystem.IsWindows())
+        {
+            var pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.CMD;.BAT;.COM";
+            extensions.AddRange(pathext.Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Select(e => e.ToLowerInvariant()));
+        }
+        else
+        {
+            extensions.Add("");
+        }
+        
+        var pathVar = Environment.GetEnvironmentVariable("PATH") ?? "";
+        var dirs = pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        
+        foreach (var dir in dirs)
+        {
+            foreach (var ext in extensions)
+            {
+                var candidate = Path.Combine(dir, bin + ext);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+        
+        return null;
     }
     
     private async Task<NodeInvokeResponse> HandleRunAsync(NodeInvokeRequest request)

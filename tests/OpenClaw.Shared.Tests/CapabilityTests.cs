@@ -199,6 +199,112 @@ public class SystemCapabilityTests
         Assert.Equal(60000, runner.LastRequest!.TimeoutMs);
     }
 
+    [Fact]
+    public void CanHandle_SystemWhich()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        Assert.True(cap.CanHandle("system.which"));
+    }
+
+    [Fact]
+    public async Task Which_FindsKnownBins()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        // cmd.exe should always exist on Windows
+        var req = new NodeInvokeRequest
+        {
+            Id = "w1",
+            Command = "system.which",
+            Args = Parse("""{"bins":["cmd"]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+
+        var payload = JsonSerializer.Deserialize<JsonElement>(
+            JsonSerializer.Serialize(res.Payload));
+        Assert.True(payload.TryGetProperty("bins", out var binsEl));
+        // cmd should resolve on Windows
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(binsEl.TryGetProperty("cmd", out var cmdPath));
+            Assert.Contains("cmd", cmdPath.GetString()!, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task Which_OmitsMissingBins()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var req = new NodeInvokeRequest
+        {
+            Id = "w2",
+            Command = "system.which",
+            Args = Parse("""{"bins":["totally_nonexistent_binary_xyz123"]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+
+        var payload = JsonSerializer.Deserialize<JsonElement>(
+            JsonSerializer.Serialize(res.Payload));
+        Assert.True(payload.TryGetProperty("bins", out var binsEl));
+        Assert.False(binsEl.TryGetProperty("totally_nonexistent_binary_xyz123", out _));
+    }
+
+    [Fact]
+    public async Task Which_RejectsPathsWithSeparators()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var req = new NodeInvokeRequest
+        {
+            Id = "w3",
+            Command = "system.which",
+            Args = Parse("""{"bins":["..\\..\\etc\\passwd","../../../bin/sh"]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+
+        var payload = JsonSerializer.Deserialize<JsonElement>(
+            JsonSerializer.Serialize(res.Payload));
+        Assert.True(payload.TryGetProperty("bins", out var binsEl));
+        // Both should be rejected (contain path separators)
+        Assert.Equal(0, binsEl.EnumerateObject().Count());
+    }
+
+    [Fact]
+    public async Task Which_ReturnsErrorWhenNoBins()
+    {
+        var cap = new SystemCapability(NullLogger.Instance);
+        var req = new NodeInvokeRequest
+        {
+            Id = "w4",
+            Command = "system.which",
+            Args = Parse("""{"bins":[]}""")
+        };
+
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+    }
+
+    [Fact]
+    public void ResolveExecutable_FindsCmdOnWindows()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var path = SystemCapability.ResolveExecutable("cmd");
+        Assert.NotNull(path);
+        Assert.EndsWith(".exe", path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveExecutable_RejectsPathTraversal()
+    {
+        Assert.Null(SystemCapability.ResolveExecutable("..\\cmd"));
+        Assert.Null(SystemCapability.ResolveExecutable("../bin/sh"));
+        Assert.Null(SystemCapability.ResolveExecutable("C:\\Windows\\cmd"));
+    }
+
     private class FakeCommandRunner : ICommandRunner
     {
         public string Name => "fake";
