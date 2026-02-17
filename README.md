@@ -148,30 +148,32 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
    openclaw devices list          # Find your Windows device
    openclaw devices approve <id>  # Approve it
    ```
-4. **Configure gateway allowCommands** - Add the commands you want to allow in `~/.openclaw/openclaw.json`:
+4. **Configure gateway allowCommands** - Add the commands you want to allow under `gateway.nodes` in `~/.openclaw/openclaw.json`:
    ```json
    {
-     "nodes": {
-       "allowCommands": [
-         "system.notify",
-         "system.run",
-          "system.execApprovals.get",
-          "system.execApprovals.set",
-         "canvas.present",
-         "canvas.hide",
-         "canvas.navigate",
-         "canvas.eval",
-         "canvas.snapshot",
-         "canvas.a2ui.push",
-         "canvas.a2ui.reset",
-         "screen.capture",
-         "screen.list",
-         "camera.list",
-         "camera.snap"
-       ]
+     "gateway": {
+       "nodes": {
+         "allowCommands": [
+           "system.notify",
+           "system.run",
+           "system.execApprovals.get",
+           "system.execApprovals.set",
+           "canvas.present",
+           "canvas.hide",
+           "canvas.navigate",
+           "canvas.eval",
+           "canvas.snapshot",
+           "canvas.a2ui.push",
+           "canvas.a2ui.reset",
+           "screen.capture",
+           "screen.list",
+           "camera.list",
+           "camera.snap"
+         ]
+       }
      }
    }
-    ```
+   ```
    > ⚠️ **Important**: The gateway has a server-side allowlist. Commands must be listed explicitly - wildcards like `canvas.*` don't work!
 
 5. **Test it** from your Mac/gateway:
@@ -198,7 +200,7 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
     openclaw nodes invoke --node <id> --command camera.snap --params '{"deviceId":"<device-id>","format":"jpeg","quality":80}'
 
     # Execute a command on the Windows node
-    openclaw nodes invoke --node <id> --command system.run --params '{"command":"Get-Process | Select -First 5","shell":"powershell","timeout":10000}'
+    openclaw nodes invoke --node <id> --command system.run --params '{"command":"Get-Process | Select -First 5","shell":"powershell","timeoutMs":10000}'
 
     # View exec approval policy
     openclaw nodes invoke --node <id> --command system.execApprovals.get
