@@ -97,13 +97,20 @@ public sealed partial class SettingsWindow : WindowEx
 
     private async void OnTestConnection(object sender, RoutedEventArgs e)
     {
+        var gatewayUrl = GatewayUrlTextBox.Text.Trim();
+        if (!GatewayUrlHelper.IsValidGatewayUrl(gatewayUrl))
+        {
+            StatusLabel.Text = $"❌ {GatewayUrlHelper.ValidationMessage}";
+            return;
+        }
+
         StatusLabel.Text = "Testing...";
         TestConnectionButton.IsEnabled = false;
 
         try
         {
             var client = new OpenClawGatewayClient(
-                GatewayUrlTextBox.Text.Trim(),
+                gatewayUrl,
                 TokenTextBox.Text.Trim(),
                 new TestLogger());
 
@@ -162,6 +169,13 @@ public sealed partial class SettingsWindow : WindowEx
 
     private void OnSave(object sender, RoutedEventArgs e)
     {
+        var gatewayUrl = GatewayUrlTextBox.Text.Trim();
+        if (!GatewayUrlHelper.IsValidGatewayUrl(gatewayUrl))
+        {
+            StatusLabel.Text = $"❌ {GatewayUrlHelper.ValidationMessage}";
+            return;
+        }
+
         SaveSettings();
         SettingsSaved?.Invoke(this, EventArgs.Empty);
         Close();

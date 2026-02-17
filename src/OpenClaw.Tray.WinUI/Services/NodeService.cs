@@ -77,7 +77,7 @@ public class NodeService : IDisposable
         
         await _nodeClient.ConnectAsync();
         
-        _a2uiHostUrl = BuildA2UIHostUrl(gatewayUrl);
+        _a2uiHostUrl = BuildA2UIHostUrl(_nodeClient.GatewayUrl);
     }
     
     /// <summary>
@@ -310,10 +310,10 @@ public class NodeService : IDisposable
 
     private static string? BuildA2UIHostUrl(string? gatewayUrl)
     {
-        if (string.IsNullOrWhiteSpace(gatewayUrl))
+        if (!GatewayUrlHelper.TryNormalizeWebSocketUrl(gatewayUrl, out var normalizedGatewayUrl))
             return null;
         
-        if (!Uri.TryCreate(gatewayUrl, UriKind.Absolute, out var uri))
+        if (!Uri.TryCreate(normalizedGatewayUrl, UriKind.Absolute, out var uri))
             return null;
         
         var scheme = uri.Scheme.Equals("wss", StringComparison.OrdinalIgnoreCase) ? "https" : "http";

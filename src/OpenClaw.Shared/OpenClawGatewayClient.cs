@@ -34,7 +34,7 @@ public class OpenClawGatewayClient : IDisposable
 
     public OpenClawGatewayClient(string gatewayUrl, string token, IOpenClawLogger? logger = null)
     {
-        _gatewayUrl = gatewayUrl;
+        _gatewayUrl = GatewayUrlHelper.NormalizeForWebSocket(gatewayUrl);
         _token = token;
         _logger = logger ?? NullLogger.Instance;
         _cts = new CancellationTokenSource();

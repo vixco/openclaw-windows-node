@@ -314,10 +314,9 @@ public partial class SettingsDialog : ModernForm
             return;
         }
 
-        if (!Uri.TryCreate(_gatewayUrlTextBox.Text.Trim(), UriKind.Absolute, out var uri) ||
-            (uri.Scheme != "ws" && uri.Scheme != "wss"))
+        if (!GatewayUrlHelper.IsValidGatewayUrl(_gatewayUrlTextBox.Text.Trim()))
         {
-            MessageBox.Show("Gateway URL must be a valid WebSocket URL (ws:// or wss://).", "Settings",
+            MessageBox.Show(GatewayUrlHelper.ValidationMessage, "Settings",
                           MessageBoxButtons.OK, MessageBoxIcon.Warning);
             _gatewayUrlTextBox.Focus();
             return;

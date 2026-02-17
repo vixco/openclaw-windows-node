@@ -61,7 +61,7 @@ public class WindowsNodeClient : IDisposable
     
     public WindowsNodeClient(string gatewayUrl, string token, string dataPath, IOpenClawLogger? logger = null)
     {
-        _gatewayUrl = gatewayUrl;
+        _gatewayUrl = GatewayUrlHelper.NormalizeForWebSocket(gatewayUrl);
         _token = token;
         _logger = logger ?? NullLogger.Instance;
         _cts = new CancellationTokenSource();
