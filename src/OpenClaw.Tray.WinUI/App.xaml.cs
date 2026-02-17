@@ -514,7 +514,7 @@ public partial class App : Application
             case "webchat": ShowWebChat(); break;
             case "quicksend": ShowQuickSend(); break;
             case "history": ShowNotificationHistory(); break;
-            case "healthcheck": _ = RunHealthCheckAsync(); break;
+            case "healthcheck": _ = RunHealthCheckAsync(userInitiated: true); break;
             case "settings": ShowSettings(); break;
             case "autostart": ToggleAutoStart(); break;
             case "log": OpenLogFile(); break;
@@ -801,7 +801,7 @@ public partial class App : Application
         flyout.Items.Add(historyItem);
 
         var healthCheckItem = new MenuFlyoutItem { Text = "🔄 Run Health Check" };
-        healthCheckItem.Click += async (s, e) => await RunHealthCheckAsync();
+        healthCheckItem.Click += async (s, e) => await RunHealthCheckAsync(userInitiated: true);
         flyout.Items.Add(healthCheckItem);
 
         flyout.Items.Add(new MenuFlyoutSeparator());
@@ -1106,18 +1106,42 @@ public partial class App : Application
         _ = RunHealthCheckAsync();
     }
 
-    private async Task RunHealthCheckAsync()
+    private async Task RunHealthCheckAsync(bool userInitiated = false)
     {
-        if (_gatewayClient == null) return;
+        if (_gatewayClient == null)
+        {
+            if (userInitiated)
+            {
+                new ToastContentBuilder()
+                    .AddText("Health Check")
+                    .AddText("Gateway is not connected yet.")
+                    .Show();
+            }
+            return;
+        }
 
         try
         {
             _lastCheckTime = DateTime.Now;
             await _gatewayClient.CheckHealthAsync();
+            if (userInitiated)
+            {
+                new ToastContentBuilder()
+                    .AddText("Health Check")
+                    .AddText("Health check request sent.")
+                    .Show();
+            }
         }
         catch (Exception ex)
         {
             Logger.Warn($"Health check failed: {ex.Message}");
+            if (userInitiated)
+            {
+                new ToastContentBuilder()
+                    .AddText("Health Check Failed")
+                    .AddText(ex.Message)
+                    .Show();
+            }
         }
     }
 
@@ -1282,11 +1306,18 @@ public partial class App : Application
         
         var baseUrl = _settings.GatewayUrl
             .Replace("ws://", "http://")
-            .Replace("wss://", "https://");
-        
-        var url = string.IsNullOrEmpty(path) 
-            ? $"{baseUrl}?token={Uri.EscapeDataString(_settings.Token)}"
-            : $"{baseUrl}/{path}?token={Uri.EscapeDataString(_settings.Token)}";
+            .Replace("wss://", "https://")
+            .TrimEnd('/');
+
+        var url = string.IsNullOrEmpty(path)
+            ? baseUrl
+            : $"{baseUrl}/{path.TrimStart('/')}";
+
+        if (!string.IsNullOrEmpty(_settings.Token))
+        {
+            var separator = url.Contains('?') ? "&" : "?";
+            url = $"{url}{separator}token={Uri.EscapeDataString(_settings.Token)}";
+        }
 
         try
         {

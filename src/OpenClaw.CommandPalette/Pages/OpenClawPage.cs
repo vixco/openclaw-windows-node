@@ -19,7 +19,7 @@ internal sealed partial class OpenClawPage : ListPage
     public override IListItem[] GetItems()
     {
         return [
-            new ListItem(new OpenUrlCommand("http://localhost:18789"))
+            new ListItem(new OpenUrlCommand("openclaw://dashboard"))
             {
                 Title = "🦞 Open Dashboard",
                 Subtitle = "Open OpenClaw web dashboard"

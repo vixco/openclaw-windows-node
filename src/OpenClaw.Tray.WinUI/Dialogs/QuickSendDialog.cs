@@ -1,3 +1,4 @@
+using Microsoft.Toolkit.Uwp.Notifications;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -124,6 +125,10 @@ public sealed class QuickSendDialog : WindowEx
         {
             await _client.SendChatMessageAsync(message);
             Logger.Info($"Quick send: {message}");
+            new ToastContentBuilder()
+                .AddText("Message Sent")
+                .AddText("Your message was sent to OpenClaw.")
+                .Show();
             Close();
         }
         catch (Exception ex)

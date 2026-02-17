@@ -22,7 +22,7 @@ This monorepo contains three projects:
 
 ### Prerequisites
 - Windows 10 (20H2+) or Windows 11
-- .NET 10.0 SDK (preview) - https://dotnet.microsoft.com/download/dotnet/10.0
+- .NET 10.0 SDK - https://dotnet.microsoft.com/download/dotnet/10.0
 - Windows 10 SDK (for WinUI build) - install via Visual Studio or standalone
 - WebView2 Runtime - pre-installed on modern Windows, or get from https://developer.microsoft.com/microsoft-edge/webview2
 - PowerToys (optional, for Command Palette extension)
@@ -211,6 +211,8 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
     > 📷 **Camera permission**: Desktop builds rely on Windows Privacy settings. Packaged MSIX builds will show the system consent prompt.
     
     > 🔒 **Exec Policy**: `system.run` is gated by an approval policy (saved to `exec-policy.json`). Default rules allow read-only commands (echo, Get-*, hostname, etc.) and deny destructive operations (rm, shutdown, registry edits). Use `system.execApprovals.get/set` to view/modify rules remotely.
+
+    > 🔐 **Web Chat secure context**: Remote web chat requires `https://` (or localhost). If using a self-signed cert, trust it in Windows (Trusted Root Certification Authorities) or use an SSH tunnel to localhost.
 
 #### Node Status in Tray Menu
 
