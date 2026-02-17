@@ -44,6 +44,7 @@ public class SettingsManager
     
     // Node mode (enables Windows as a node, not just operator)
     public bool EnableNodeMode { get; set; } = false;
+    public bool HasSeenActivityStreamTip { get; set; } = false;
 
     public SettingsManager()
     {
@@ -75,6 +76,7 @@ public class SettingsManager
                     NotifyStock = loaded.NotifyStock;
                     NotifyInfo = loaded.NotifyInfo;
                     EnableNodeMode = loaded.EnableNodeMode;
+                    HasSeenActivityStreamTip = loaded.HasSeenActivityStreamTip;
                     NotifyChatResponses = loaded.NotifyChatResponses;
                     PreferStructuredCategories = loaded.PreferStructuredCategories;
                     if (loaded.UserRules != null)
@@ -111,6 +113,7 @@ public class SettingsManager
                 NotifyStock = NotifyStock,
                 NotifyInfo = NotifyInfo,
                 EnableNodeMode = EnableNodeMode,
+                HasSeenActivityStreamTip = HasSeenActivityStreamTip,
                 NotifyChatResponses = NotifyChatResponses,
                 PreferStructuredCategories = PreferStructuredCategories,
                 UserRules = UserRules
@@ -145,6 +148,7 @@ public class SettingsManager
         public bool NotifyStock { get; set; } = true;
         public bool NotifyInfo { get; set; } = true;
         public bool EnableNodeMode { get; set; } = false;
+        public bool HasSeenActivityStreamTip { get; set; } = false;
         public bool NotifyChatResponses { get; set; } = true;
         public bool PreferStructuredCategories { get; set; } = true;
         public List<OpenClaw.Shared.UserNotificationRule>? UserRules { get; set; }

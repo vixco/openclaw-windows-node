@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using Xunit;
 using OpenClaw.Shared;
 
@@ -63,6 +64,71 @@ public class OpenClawGatewayClientTests
         public SessionInfo[] GetSessionList()
         {
             return _client.GetSessionList();
+        }
+
+        public GatewayUsageInfo ParseUsageStatusPayload(string payloadJson)
+        {
+            InvokePrivatePayloadParser("ParseUsageStatus", payloadJson);
+            return GetUsageState();
+        }
+
+        public GatewayUsageInfo ParseUsageCostPayload(string payloadJson)
+        {
+            InvokePrivatePayloadParser("ParseUsageCost", payloadJson);
+            return GetUsageState();
+        }
+
+        public SessionsPreviewPayloadInfo ParseSessionsPreviewPayload(string payloadJson)
+        {
+            SessionsPreviewPayloadInfo? parsed = null;
+            EventHandler<SessionsPreviewPayloadInfo> handler = (_, payload) => parsed = payload;
+            _client.SessionPreviewUpdated += handler;
+
+            try
+            {
+                InvokePrivatePayloadParser("ParseSessionsPreview", payloadJson);
+            }
+            finally
+            {
+                _client.SessionPreviewUpdated -= handler;
+            }
+
+            return parsed ?? new SessionsPreviewPayloadInfo();
+        }
+
+        public GatewayNodeInfo[] ParseNodeListPayload(string payloadJson)
+        {
+            GatewayNodeInfo[] parsed = Array.Empty<GatewayNodeInfo>();
+            EventHandler<GatewayNodeInfo[]> handler = (_, nodes) => parsed = nodes;
+            _client.NodesUpdated += handler;
+
+            try
+            {
+                InvokePrivatePayloadParser("ParseNodeList", payloadJson);
+            }
+            finally
+            {
+                _client.NodesUpdated -= handler;
+            }
+
+            return parsed;
+        }
+
+        private void InvokePrivatePayloadParser(string methodName, string payloadJson)
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            var method = typeof(OpenClawGatewayClient).GetMethod(
+                methodName,
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            method!.Invoke(_client, new object[] { doc.RootElement.Clone() });
+        }
+
+        private GatewayUsageInfo GetUsageState()
+        {
+            var field = typeof(OpenClawGatewayClient).GetField(
+                "_usage",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            return (GatewayUsageInfo)(field?.GetValue(_client) ?? new GatewayUsageInfo());
         }
     }
 
@@ -318,6 +384,118 @@ public class OpenClawGatewayClientTests
         
         // Empty initially
         Assert.Empty(sessions);
+    }
+
+    [Fact]
+    public void ParseUsageStatusPayload_PopulatesProviderSummary()
+    {
+        var helper = new GatewayClientTestHelper();
+        var usage = helper.ParseUsageStatusPayload("""
+            {
+              "updatedAt": 1739760000000,
+              "providers": [
+                {
+                  "provider": "openai",
+                  "displayName": "OpenAI",
+                  "windows": [
+                    { "label": "daily", "usedPercent": 27.5 }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        Assert.NotNull(usage.ProviderSummary);
+        Assert.Contains("OpenAI", usage.ProviderSummary!);
+        Assert.Contains("left", usage.ProviderSummary!);
+    }
+
+    [Fact]
+    public void ParseUsageCostPayload_UpdatesLegacyUsageTotals()
+    {
+        var helper = new GatewayClientTestHelper();
+        var usage = helper.ParseUsageCostPayload("""
+            {
+              "updatedAt": 1739760000000,
+              "days": 30,
+              "totals": {
+                "totalTokens": 12345,
+                "totalCost": 1.23
+              }
+            }
+            """);
+
+        Assert.Equal(12345, usage.TotalTokens);
+        Assert.Equal(1.23, usage.CostUsd, 3);
+    }
+
+    [Fact]
+    public void ParseSessionsPreviewPayload_EmitsPreviewRows()
+    {
+        var helper = new GatewayClientTestHelper();
+        var previewPayload = helper.ParseSessionsPreviewPayload("""
+            {
+              "ts": 1739760000000,
+              "previews": [
+                {
+                  "key": "agent:main:main",
+                  "status": "ok",
+                  "items": [
+                    { "role": "user", "text": "hello" },
+                    { "role": "assistant", "text": "world" }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        var preview = Assert.Single(previewPayload.Previews);
+        Assert.Equal("agent:main:main", preview.Key);
+        Assert.Equal("ok", preview.Status);
+        Assert.Equal(2, preview.Items.Count);
+        Assert.Equal("user", preview.Items[0].Role);
+        Assert.Equal("hello", preview.Items[0].Text);
+    }
+
+    [Fact]
+    public void ParseNodeListPayload_ParsesAndSortsNodes()
+    {
+        var helper = new GatewayClientTestHelper();
+        var nodes = helper.ParseNodeListPayload("""
+            {
+              "nodes": [
+                {
+                  "nodeId": "node-online",
+                  "displayName": "Windows Node",
+                  "status": "connected",
+                  "platform": "windows",
+                  "mode": "node",
+                  "declaredCommands": ["system.run", "canvas.present"],
+                  "caps": ["system"],
+                  "lastSeenAt": 1739760000000
+                },
+                {
+                  "deviceId": "node-offline",
+                  "name": "Mac Node",
+                  "status": "offline",
+                  "platform": "darwin",
+                  "mode": "node",
+                  "commands": [],
+                  "capabilities": ["camera"],
+                  "lastSeenAt": 1739750000000
+                }
+              ]
+            }
+            """);
+
+        Assert.Equal(2, nodes.Length);
+        Assert.Equal("node-online", nodes[0].NodeId);
+        Assert.True(nodes[0].IsOnline);
+        Assert.Equal(2, nodes[0].CommandCount);
+        Assert.Equal(1, nodes[0].CapabilityCount);
+
+        Assert.Equal("node-offline", nodes[1].NodeId);
+        Assert.False(nodes[1].IsOnline);
     }
 
     [Fact]

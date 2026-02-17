@@ -45,8 +45,14 @@ public partial class App : Application
     private AgentActivity? _currentActivity;
     private ChannelHealth[] _lastChannels = Array.Empty<ChannelHealth>();
     private SessionInfo[] _lastSessions = Array.Empty<SessionInfo>();
+    private GatewayNodeInfo[] _lastNodes = Array.Empty<GatewayNodeInfo>();
+    private readonly Dictionary<string, SessionPreviewInfo> _sessionPreviews = new();
+    private DateTime _lastPreviewRequestUtc = DateTime.MinValue;
     private GatewayUsageInfo? _lastUsage;
+    private GatewayUsageStatusInfo? _lastUsageStatus;
+    private GatewayCostUsageInfo? _lastUsageCost;
     private DateTime _lastCheckTime = DateTime.Now;
+    private DateTime _lastUsageActivityLogUtc = DateTime.MinValue;
 
     // Session-aware activity tracking
     private readonly Dictionary<string, AgentActivity> _sessionActivities = new();
@@ -59,6 +65,7 @@ public partial class App : Application
     private WebChatWindow? _webChatWindow;
     private StatusDetailWindow? _statusDetailWindow;
     private NotificationHistoryWindow? _notificationHistoryWindow;
+    private ActivityStreamWindow? _activityStreamWindow;
     private TrayMenuWindow? _trayMenuWindow;
     
     // Node service (optional, enabled in settings)
@@ -250,6 +257,7 @@ public partial class App : Application
 
         // Initialize tray icon (window-less pattern from WinUIEx)
         InitializeTrayIcon();
+        ShowSurfaceImprovementsTipIfNeeded();
 
         // Initialize connections - only use operator if node mode is disabled
         // (dual connections cause gateway conflicts)
@@ -514,16 +522,40 @@ public partial class App : Application
             case "webchat": ShowWebChat(); break;
             case "quicksend": ShowQuickSend(); break;
             case "history": ShowNotificationHistory(); break;
+            case "activity": ShowActivityStream(); break;
             case "healthcheck": _ = RunHealthCheckAsync(userInitiated: true); break;
             case "settings": ShowSettings(); break;
             case "autostart": ToggleAutoStart(); break;
             case "log": OpenLogFile(); break;
             case "copydeviceid": CopyDeviceIdToClipboard(); break;
+            case "copynodesummary": CopyNodeSummaryToClipboard(); break;
             case "exit": ExitApplication(); break;
             default:
-                if (action.StartsWith("session:"))
+                if (action.StartsWith("session-reset|", StringComparison.Ordinal))
+                    _ = ExecuteSessionActionAsync("reset", action["session-reset|".Length..]);
+                else if (action.StartsWith("session-compact|", StringComparison.Ordinal))
+                    _ = ExecuteSessionActionAsync("compact", action["session-compact|".Length..]);
+                else if (action.StartsWith("session-delete|", StringComparison.Ordinal))
+                    _ = ExecuteSessionActionAsync("delete", action["session-delete|".Length..]);
+                else if (action.StartsWith("session-thinking|", StringComparison.Ordinal))
+                {
+                    var split = action.Split('|', 3);
+                    if (split.Length == 3)
+                        _ = ExecuteSessionActionAsync("thinking", split[2], split[1]);
+                }
+                else if (action.StartsWith("session-verbose|", StringComparison.Ordinal))
+                {
+                    var split = action.Split('|', 3);
+                    if (split.Length == 3)
+                        _ = ExecuteSessionActionAsync("verbose", split[2], split[1]);
+                }
+                else if (action.StartsWith("session:", StringComparison.Ordinal))
                     OpenDashboard($"sessions/{action[8..]}");
-                else if (action.StartsWith("channel:"))
+                else if (action.StartsWith("dashboard:", StringComparison.Ordinal))
+                    OpenDashboard(action["dashboard:".Length..]);
+                else if (action.StartsWith("activity:", StringComparison.Ordinal))
+                    ShowActivityStream(action["activity:".Length..]);
+                else if (action.StartsWith("channel:", StringComparison.Ordinal))
                     ToggleChannel(action[8..]);
                 break;
         }
@@ -551,6 +583,156 @@ public partial class App : Application
         }
     }
 
+    private void CopyNodeSummaryToClipboard()
+    {
+        if (_lastNodes.Length == 0) return;
+
+        try
+        {
+            var lines = _lastNodes.Select(node =>
+            {
+                var state = node.IsOnline ? "online" : "offline";
+                var name = string.IsNullOrWhiteSpace(node.DisplayName) ? node.ShortId : node.DisplayName;
+                return $"{state}: {name} ({node.ShortId}) · {node.DetailText}";
+            });
+            var summary = string.Join(Environment.NewLine, lines);
+
+            var dataPackage = new global::Windows.ApplicationModel.DataTransfer.DataPackage();
+            dataPackage.SetText(summary);
+            global::Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+
+            new ToastContentBuilder()
+                .AddText("📋 Node summary copied")
+                .AddText($"{_lastNodes.Length} node(s) copied to clipboard")
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to copy node summary: {ex.Message}");
+        }
+    }
+
+    private async Task ExecuteSessionActionAsync(string action, string sessionKey, string? value = null)
+    {
+        if (_gatewayClient == null || string.IsNullOrWhiteSpace(sessionKey)) return;
+
+        try
+        {
+            if (action is "reset" or "compact" or "delete")
+            {
+                var title = action switch
+                {
+                    "reset" => "Reset session?",
+                    "compact" => "Compact session log?",
+                    "delete" => "Delete session?",
+                    _ => "Confirm session action"
+                };
+                var body = action switch
+                {
+                    "reset" => $"Start a fresh session for '{sessionKey}'?",
+                    "compact" => $"Keep the latest log lines for '{sessionKey}' and archive the rest?",
+                    "delete" => $"Delete '{sessionKey}' and archive its transcript?",
+                    _ => "Continue?"
+                };
+                var button = action switch
+                {
+                    "reset" => "Reset",
+                    "compact" => "Compact",
+                    "delete" => "Delete",
+                    _ => "Continue"
+                };
+
+                var confirmed = await ConfirmSessionActionAsync(title, body, button);
+                if (!confirmed) return;
+            }
+
+            var sent = action switch
+            {
+                "reset" => await _gatewayClient.ResetSessionAsync(sessionKey),
+                "compact" => await _gatewayClient.CompactSessionAsync(sessionKey, 400),
+                "delete" => await _gatewayClient.DeleteSessionAsync(sessionKey, deleteTranscript: true),
+                "thinking" => await _gatewayClient.PatchSessionAsync(sessionKey, thinkingLevel: value),
+                "verbose" => await _gatewayClient.PatchSessionAsync(sessionKey, verboseLevel: value),
+                _ => false
+            };
+
+            if (!sent)
+            {
+                new ToastContentBuilder()
+                    .AddText("❌ Session action failed")
+                    .AddText("Could not send request to gateway.")
+                    .Show();
+                return;
+            }
+
+            if (action is "thinking" or "verbose")
+            {
+                _ = _gatewayClient.RequestSessionsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Session action error ({action}): {ex.Message}");
+            try
+            {
+                new ToastContentBuilder()
+                    .AddText("❌ Session action failed")
+                    .AddText(ex.Message)
+                    .Show();
+            }
+            catch { }
+        }
+    }
+
+    private async Task<bool> ConfirmSessionActionAsync(string title, string body, string actionLabel)
+    {
+        var root = _keepAliveWindow?.Content as FrameworkElement;
+        if (root?.XamlRoot == null) return false;
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = body,
+            PrimaryButtonText = actionLabel,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = root.XamlRoot
+        };
+        var result = await dialog.ShowAsync();
+        return result == ContentDialogResult.Primary;
+    }
+
+    private static string TruncateMenuText(string text, int maxLength = 96)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        if (text.Length <= maxLength) return text;
+        return text[..(maxLength - 1)] + "…";
+    }
+
+    private void AddRecentActivity(
+        string line,
+        string category = "general",
+        string? dashboardPath = null,
+        string? details = null,
+        string? sessionKey = null,
+        string? nodeId = null)
+    {
+        ActivityStreamService.Add(
+            category: category,
+            title: line,
+            details: details,
+            dashboardPath: dashboardPath,
+            sessionKey: sessionKey,
+            nodeId: nodeId);
+    }
+
+    private List<string> GetRecentActivity(int maxItems)
+    {
+        return ActivityStreamService.GetItems(Math.Max(0, maxItems))
+            .Select(item => $"{item.Timestamp:HH:mm:ss} {item.Title}")
+            .ToList();
+    }
+
     private void BuildTrayMenuPopup(TrayMenuWindow menu)
     {
         // Brand header
@@ -574,9 +756,47 @@ public partial class App : Application
         }
 
         // Usage
-        if (_lastUsage != null)
+        if (_lastUsage != null || _lastUsageStatus != null || _lastUsageCost != null)
         {
-            menu.AddMenuItem(_lastUsage.DisplayText, "📊", "", isEnabled: false);
+            var usageText = _lastUsage?.DisplayText;
+            if (string.IsNullOrWhiteSpace(usageText) || string.Equals(usageText, "No usage data", StringComparison.Ordinal))
+            {
+                usageText = _lastUsageStatus?.Providers.Count > 0
+                    ? $"{_lastUsageStatus.Providers.Count} provider{(_lastUsageStatus.Providers.Count == 1 ? "" : "s")} active"
+                    : "No usage data";
+            }
+
+            menu.AddMenuItem(usageText ?? "No usage data", "📊", "activity:usage");
+
+            if (!string.IsNullOrWhiteSpace(_lastUsage?.ProviderSummary))
+            {
+                menu.AddMenuItem(
+                    $"↳ {TruncateMenuText(_lastUsage.ProviderSummary!, 88)}",
+                    "",
+                    "",
+                    isEnabled: false,
+                    indent: true);
+            }
+
+            if (_lastUsageCost is { Days: > 0 } usageCost)
+            {
+                menu.AddMenuItem(
+                    $"↳ {usageCost.Days}d cost: ${usageCost.Totals.TotalCost:F2}",
+                    "",
+                    "",
+                    isEnabled: false,
+                    indent: true);
+                var recent = usageCost.Daily.TakeLast(3).ToArray();
+                if (recent.Length > 0)
+                {
+                    menu.AddMenuItem(
+                        $"↳ Last {recent.Length}d: ${recent.Sum(d => d.TotalCost):F2}",
+                        "",
+                        "",
+                        isEnabled: false,
+                        indent: true);
+                }
+            }
         }
         
         // Node Mode status (if enabled)
@@ -608,32 +828,51 @@ public partial class App : Application
         if (_lastSessions.Length > 0)
         {
             menu.AddSeparator();
-            menu.AddMenuItem($"Sessions ({_lastSessions.Length})", "💬", "dashboard:sessions");
+            menu.AddMenuItem($"Sessions ({_lastSessions.Length})", "💬", "activity:sessions");
 
-            foreach (var session in _lastSessions.Take(5))
+            var visibleSessions = _lastSessions.Take(3).ToArray();
+            foreach (var session in visibleSessions)
             {
-                // Extract session type from key like "agent:main:cron:uuid" or "agent:main:subagent:uuid"
-                var parts = session.Key.Split(':');
-                var sessionType = parts.Length >= 3 ? parts[2] : "session";
-                var displayName = sessionType switch
-                {
-                    "main" => "Main Agent",
-                    "cron" => "Scheduled Task",
-                    "subagent" => "Sub-Agent",
-                    _ => sessionType.Length > 0 ? char.ToUpper(sessionType[0]) + sessionType[1..] : "Session"
-                };
-                
-                // Add model if available
-                if (!string.IsNullOrEmpty(session.Model))
-                    displayName += $" ({session.Model})";
-                else if (!string.IsNullOrEmpty(session.Channel))
-                    displayName += $" · {session.Channel}";
-                    
+                var displayName = session.RichDisplayText;
+                if (!string.IsNullOrWhiteSpace(session.AgeText))
+                    displayName += $" · {session.AgeText}";
                 var icon = session.IsMain ? "⭐" : "•";
-                menu.AddMenuItem(displayName, icon, $"session:{session.Key}", isEnabled: false, indent: true);
+                menu.AddMenuItem(displayName, icon, $"session:{session.Key}", indent: true);
+
+                if (_sessionPreviews.TryGetValue(session.Key, out var preview))
+                {
+                    var previewText = preview.Items.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Text))?.Text;
+                    if (!string.IsNullOrWhiteSpace(previewText))
+                    {
+                        menu.AddMenuItem(
+                            $"↳ {TruncateMenuText(previewText)}",
+                            "",
+                            "",
+                            isEnabled: false,
+                            indent: true);
+                    }
+                }
+
+                var currentThinking = string.IsNullOrWhiteSpace(session.ThinkingLevel) ? "off" : session.ThinkingLevel;
+                var currentVerbose = string.IsNullOrWhiteSpace(session.VerboseLevel) ? "off" : session.VerboseLevel;
+                var nextVerbose = string.Equals(currentVerbose, "on", StringComparison.OrdinalIgnoreCase) ? "off" : "on";
+                menu.AddMenuItem(
+                    $"↳ Thinking: {currentThinking} → high",
+                    "🧠",
+                    $"session-thinking|high|{session.Key}",
+                    indent: true);
+                menu.AddMenuItem(
+                    $"↳ Verbose: {currentVerbose} → {nextVerbose}",
+                    "📝",
+                    $"session-verbose|{nextVerbose}|{session.Key}",
+                    indent: true);
+                menu.AddMenuItem("↳ Reset session", "♻️", $"session-reset|{session.Key}", indent: true);
+                menu.AddMenuItem("↳ Compact log", "🗜️", $"session-compact|{session.Key}", indent: true);
+                if (!session.IsMain && !string.Equals(session.Key, "global", StringComparison.OrdinalIgnoreCase))
+                    menu.AddMenuItem("↳ Delete session", "🗑️", $"session-delete|{session.Key}", indent: true);
             }
-            if (_lastSessions.Length > 5)
-                menu.AddMenuItem($"+{_lastSessions.Length - 5} more...", "", "", isEnabled: false, indent: true);
+            if (_lastSessions.Length > visibleSessions.Length)
+                menu.AddMenuItem($"+{_lastSessions.Length - visibleSessions.Length} more...", "", "", isEnabled: false, indent: true);
         }
 
         // Channels (if any)
@@ -660,12 +899,44 @@ public partial class App : Application
             }
         }
 
+        if (_lastNodes.Length > 0)
+        {
+            menu.AddSeparator();
+            menu.AddMenuItem($"Nodes ({_lastNodes.Length})", "🖥️", "activity:nodes");
+
+            var visibleNodes = _lastNodes.Take(3).ToArray();
+            foreach (var node in visibleNodes)
+            {
+                var icon = node.IsOnline ? "🟢" : "⚪";
+                menu.AddMenuItem(TruncateMenuText(node.DisplayText, 92), icon, "", isEnabled: false, indent: true);
+                menu.AddMenuItem($"↳ {TruncateMenuText(node.DetailText, 92)}", "", "", isEnabled: false, indent: true);
+            }
+
+            if (_lastNodes.Length > visibleNodes.Length)
+                menu.AddMenuItem($"+{_lastNodes.Length - visibleNodes.Length} more...", "", "", isEnabled: false, indent: true);
+
+            menu.AddMenuItem("Copy node summary", "📋", "copynodesummary", indent: true);
+        }
+
+        var recentActivity = GetRecentActivity(maxItems: 4);
+        if (recentActivity.Count > 0)
+        {
+            menu.AddSeparator();
+            var totalActivity = ActivityStreamService.GetItems().Count;
+            menu.AddMenuItem($"Recent Activity ({totalActivity})", "⚡", "activity");
+            foreach (var line in recentActivity)
+            {
+                menu.AddMenuItem(TruncateMenuText(line, 94), "", "", isEnabled: false, indent: true);
+            }
+        }
+
         menu.AddSeparator();
 
         // Actions
         menu.AddMenuItem("Open Dashboard", "🌐", "dashboard");
         menu.AddMenuItem("Open Web Chat", "💬", "webchat");
         menu.AddMenuItem("Quick Send...", "📤", "quicksend");
+        menu.AddMenuItem("Activity Stream...", "⚡", "activity");
         menu.AddMenuItem("Notification History...", "📋", "history");
         menu.AddMenuItem("Run Health Check", "🔄", "healthcheck");
 
@@ -846,6 +1117,11 @@ public partial class App : Application
         _gatewayClient.ChannelHealthUpdated += OnChannelHealthUpdated;
         _gatewayClient.SessionsUpdated += OnSessionsUpdated;
         _gatewayClient.UsageUpdated += OnUsageUpdated;
+        _gatewayClient.UsageStatusUpdated += OnUsageStatusUpdated;
+        _gatewayClient.UsageCostUpdated += OnUsageCostUpdated;
+        _gatewayClient.NodesUpdated += OnNodesUpdated;
+        _gatewayClient.SessionPreviewUpdated += OnSessionPreviewUpdated;
+        _gatewayClient.SessionCommandCompleted += OnSessionCommandCompleted;
         _ = _gatewayClient.ConnectAsync();
     }
 
@@ -859,6 +1135,11 @@ public partial class App : Application
             _gatewayClient.ChannelHealthUpdated -= OnChannelHealthUpdated;
             _gatewayClient.SessionsUpdated -= OnSessionsUpdated;
             _gatewayClient.UsageUpdated -= OnUsageUpdated;
+            _gatewayClient.UsageStatusUpdated -= OnUsageStatusUpdated;
+            _gatewayClient.UsageCostUpdated -= OnUsageCostUpdated;
+            _gatewayClient.NodesUpdated -= OnNodesUpdated;
+            _gatewayClient.SessionPreviewUpdated -= OnSessionPreviewUpdated;
+            _gatewayClient.SessionCommandCompleted -= OnSessionCommandCompleted;
         }
     }
     
@@ -888,6 +1169,7 @@ public partial class App : Application
     private void OnNodeStatusChanged(object? sender, ConnectionStatus status)
     {
         Logger.Info($"Node status: {status}");
+        AddRecentActivity($"Node mode {status}", category: "node", dashboardPath: "nodes");
         
         // In node-only mode, surface node connection in main status indicator
         if (_settings?.EnableNodeMode == true)
@@ -918,6 +1200,7 @@ public partial class App : Application
         {
             if (args.Status == OpenClaw.Shared.PairingStatus.Pending)
             {
+                AddRecentActivity("Node pairing pending", category: "node", dashboardPath: "nodes", nodeId: args.DeviceId);
                 // Show toast with approval instructions
                 new ToastContentBuilder()
                     .AddText("⏳ Awaiting Pairing Approval")
@@ -926,6 +1209,7 @@ public partial class App : Application
             }
             else if (args.Status == OpenClaw.Shared.PairingStatus.Paired)
             {
+                AddRecentActivity("Node paired", category: "node", dashboardPath: "nodes", nodeId: args.DeviceId);
                 new ToastContentBuilder()
                     .AddText("✅ Node Paired!")
                     .AddText("This PC can now receive commands from the agent")
@@ -937,6 +1221,8 @@ public partial class App : Application
     
     private void OnNodeNotificationRequested(object? sender, OpenClaw.Shared.Capabilities.SystemNotifyArgs args)
     {
+        AddRecentActivity(args.Title, category: "node", dashboardPath: "nodes", details: args.Body);
+
         // Agent requested a notification via node.invoke system.notify
         try
         {
@@ -977,6 +1263,12 @@ public partial class App : Application
         {
             var sessionKey = activity.SessionKey ?? "default";
             _sessionActivities[sessionKey] = activity;
+            AddRecentActivity(
+                $"{sessionKey}: {activity.Label}",
+                category: "session",
+                dashboardPath: $"sessions/{sessionKey}",
+                details: activity.Kind.ToString(),
+                sessionKey: sessionKey);
 
             // Debounce session switching
             var now = DateTime.Now;
@@ -1004,6 +1296,20 @@ public partial class App : Application
     private void OnSessionsUpdated(object? sender, SessionInfo[] sessions)
     {
         _lastSessions = sessions;
+
+        var activeKeys = new HashSet<string>(sessions.Select(s => s.Key), StringComparer.Ordinal);
+        var stale = _sessionPreviews.Keys.Where(key => !activeKeys.Contains(key)).ToArray();
+        foreach (var key in stale)
+            _sessionPreviews.Remove(key);
+
+        if (_gatewayClient != null &&
+            sessions.Length > 0 &&
+            DateTime.UtcNow - _lastPreviewRequestUtc > TimeSpan.FromSeconds(5))
+        {
+            _lastPreviewRequestUtc = DateTime.UtcNow;
+            var keys = sessions.Take(5).Select(s => s.Key).ToArray();
+            _ = _gatewayClient.RequestSessionPreviewAsync(keys, limit: 3, maxChars: 140);
+        }
     }
 
     private void OnUsageUpdated(object? sender, GatewayUsageInfo usage)
@@ -1011,8 +1317,101 @@ public partial class App : Application
         _lastUsage = usage;
     }
 
+    private void OnUsageStatusUpdated(object? sender, GatewayUsageStatusInfo usageStatus)
+    {
+        _lastUsageStatus = usageStatus;
+    }
+
+    private void OnUsageCostUpdated(object? sender, GatewayCostUsageInfo usageCost)
+    {
+        _lastUsageCost = usageCost;
+
+        if (DateTime.UtcNow - _lastUsageActivityLogUtc > TimeSpan.FromMinutes(1))
+        {
+            _lastUsageActivityLogUtc = DateTime.UtcNow;
+            AddRecentActivity(
+                $"{usageCost.Days}d usage ${usageCost.Totals.TotalCost:F2}",
+                category: "usage",
+                dashboardPath: "usage",
+                details: $"{usageCost.Totals.TotalTokens:N0} tokens");
+        }
+    }
+
+    private void OnNodesUpdated(object? sender, GatewayNodeInfo[] nodes)
+    {
+        var previousCount = _lastNodes.Length;
+        var previousOnline = _lastNodes.Count(n => n.IsOnline);
+        var online = nodes.Count(n => n.IsOnline);
+        _lastNodes = nodes;
+
+        if (nodes.Length != previousCount || online != previousOnline)
+        {
+            AddRecentActivity(
+                $"Nodes {online}/{nodes.Length} online",
+                category: "node",
+                dashboardPath: "nodes");
+        }
+    }
+
+    private void OnSessionPreviewUpdated(object? sender, SessionsPreviewPayloadInfo payload)
+    {
+        foreach (var preview in payload.Previews)
+        {
+            _sessionPreviews[preview.Key] = preview;
+        }
+    }
+
+    private void OnSessionCommandCompleted(object? sender, SessionCommandResult result)
+    {
+        if (_dispatcherQueue == null) return;
+
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                var title = result.Ok ? "✅ Session updated" : "❌ Session action failed";
+                var key = string.IsNullOrWhiteSpace(result.Key) ? "session" : result.Key!;
+                var message = result.Ok
+                    ? result.Method switch
+                    {
+                        "sessions.patch" => $"Updated settings for {key}",
+                        "sessions.reset" => $"Reset {key}",
+                        "sessions.compact" => result.Kept.HasValue
+                            ? $"Compacted {key} ({result.Kept.Value} lines kept)"
+                            : $"Compacted {key}",
+                        "sessions.delete" => $"Deleted {key}",
+                        _ => $"Completed action for {key}"
+                    }
+                    : result.Error ?? "Request failed";
+                AddRecentActivity(
+                    $"{title.Replace("✅ ", "").Replace("❌ ", "")}: {message}",
+                    category: "session",
+                    dashboardPath: !string.IsNullOrWhiteSpace(result.Key) ? $"sessions/{result.Key}" : "sessions",
+                    sessionKey: result.Key);
+
+                new ToastContentBuilder()
+                    .AddText(title)
+                    .AddText(message)
+                    .Show();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"Failed to show session action toast: {ex.Message}");
+            }
+        });
+
+        if (result.Ok)
+        {
+            _ = _gatewayClient?.RequestSessionsAsync();
+        }
+    }
+
     private void OnNotificationReceived(object? sender, OpenClawNotification notification)
     {
+        AddRecentActivity(
+            $"{notification.Type ?? "info"}: {notification.Title ?? "notification"}",
+            category: "notification",
+            details: notification.Message);
         if (_settings?.ShowNotifications != true) return;
         if (!ShouldShowNotification(notification)) return;
 
@@ -1153,6 +1552,7 @@ public partial class App : Application
         {
             await _gatewayClient.RequestSessionsAsync();
             await _gatewayClient.RequestUsageAsync();
+            await _gatewayClient.RequestNodesAsync();
         }
         catch (Exception ex)
         {
@@ -1286,6 +1686,18 @@ public partial class App : Application
         _notificationHistoryWindow.Activate();
     }
 
+    private void ShowActivityStream(string? filter = null)
+    {
+        if (_activityStreamWindow == null || _activityStreamWindow.IsClosed)
+        {
+            _activityStreamWindow = new ActivityStreamWindow(OpenDashboard);
+            _activityStreamWindow.Closed += (s, e) => _activityStreamWindow = null;
+        }
+
+        _activityStreamWindow.SetFilter(filter);
+        _activityStreamWindow.Activate();
+    }
+
     private async Task ShowFirstRunWelcomeAsync()
     {
         var dialog = new WelcomeDialog();
@@ -1293,6 +1705,29 @@ public partial class App : Application
         if (result == ContentDialogResult.Primary)
         {
             ShowSettings();
+        }
+    }
+
+    private void ShowSurfaceImprovementsTipIfNeeded()
+    {
+        if (_settings == null || _settings.HasSeenActivityStreamTip) return;
+
+        _settings.HasSeenActivityStreamTip = true;
+        _settings.Save();
+
+        try
+        {
+            new ToastContentBuilder()
+                .AddText("⚡ New: Activity Stream")
+                .AddText("Open the tray menu to view live sessions, usage, and node activity in one flyout.")
+                .AddButton(new ToastButton()
+                    .SetContent("Open Activity Stream")
+                    .AddArgument("action", "open_activity"))
+                .Show();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Failed to show activity stream tip: {ex.Message}");
         }
     }
 
@@ -1552,6 +1987,9 @@ public partial class App : Application
                         break;
                     case "open_chat":
                         ShowWebChat();
+                        break;
+                    case "open_activity":
+                        ShowActivityStream();
                         break;
                 }
             });

@@ -22,7 +22,16 @@ public class OpenClawGatewayClient : IDisposable
 
     // Tracked state
     private readonly Dictionary<string, SessionInfo> _sessions = new();
+    private readonly Dictionary<string, GatewayNodeInfo> _nodes = new();
     private GatewayUsageInfo? _usage;
+    private GatewayUsageStatusInfo? _usageStatus;
+    private GatewayCostUsageInfo? _usageCost;
+    private readonly Dictionary<string, string> _pendingRequestMethods = new();
+    private readonly object _pendingRequestLock = new();
+    private bool _usageStatusUnsupported;
+    private bool _usageCostUnsupported;
+    private bool _sessionPreviewUnsupported;
+    private bool _nodeListUnsupported;
 
     // Events
     public event EventHandler<ConnectionStatus>? StatusChanged;
@@ -31,6 +40,11 @@ public class OpenClawGatewayClient : IDisposable
     public event EventHandler<ChannelHealth[]>? ChannelHealthUpdated;
     public event EventHandler<SessionInfo[]>? SessionsUpdated;
     public event EventHandler<GatewayUsageInfo>? UsageUpdated;
+    public event EventHandler<GatewayUsageStatusInfo>? UsageStatusUpdated;
+    public event EventHandler<GatewayCostUsageInfo>? UsageCostUpdated;
+    public event EventHandler<GatewayNodeInfo[]>? NodesUpdated;
+    public event EventHandler<SessionsPreviewPayloadInfo>? SessionPreviewUpdated;
+    public event EventHandler<SessionCommandResult>? SessionCommandCompleted;
 
     public OpenClawGatewayClient(string gatewayUrl, string token, IOpenClawLogger? logger = null)
     {
@@ -85,6 +99,7 @@ public class OpenClawGatewayClient : IDisposable
                 _logger.Warn($"Error during disconnect: {ex.Message}");
             }
         }
+        ClearPendingRequests();
         StatusChanged?.Invoke(this, ConnectionStatus.Disconnected);
         _logger.Info("Disconnected");
     }
@@ -135,32 +150,98 @@ public class OpenClawGatewayClient : IDisposable
     /// <summary>Request session list from gateway.</summary>
     public async Task RequestSessionsAsync()
     {
-        if (_webSocket?.State != WebSocketState.Open) return;
-        var req = new
-        {
-            type = "req",
-            id = Guid.NewGuid().ToString(),
-            method = "sessions.list"
-        };
-        await SendRawAsync(JsonSerializer.Serialize(req));
+        await SendTrackedRequestAsync("sessions.list");
     }
 
     /// <summary>Request usage/context info from gateway (may not be supported on all gateways).</summary>
     public async Task RequestUsageAsync()
     {
-        // Usage endpoint may not exist on all gateways - fail silently
         if (_webSocket?.State != WebSocketState.Open) return;
         try
         {
-            var req = new
+            if (_usageStatusUnsupported)
             {
-                type = "req",
-                id = Guid.NewGuid().ToString(),
-                method = "usage"
-            };
-            await SendRawAsync(JsonSerializer.Serialize(req));
+                await RequestLegacyUsageAsync();
+                return;
+            }
+
+            await RequestUsageStatusAsync();
+            if (!_usageCostUnsupported)
+            {
+                await RequestUsageCostAsync(days: 30);
+            }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Usage request failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Request connected node inventory from gateway.</summary>
+    public async Task RequestNodesAsync()
+    {
+        if (_nodeListUnsupported) return;
+        await SendTrackedRequestAsync("node.list");
+    }
+
+    public async Task RequestUsageStatusAsync()
+    {
+        await SendTrackedRequestAsync("usage.status");
+    }
+
+    public async Task RequestUsageCostAsync(int days = 30)
+    {
+        if (days <= 0) days = 30;
+        await SendTrackedRequestAsync("usage.cost", new { days });
+    }
+
+    public async Task RequestSessionPreviewAsync(string[] keys, int limit = 12, int maxChars = 240)
+    {
+        if (_sessionPreviewUnsupported) return;
+        if (keys.Length == 0) return;
+        if (limit <= 0) limit = 1;
+        if (maxChars < 20) maxChars = 20;
+
+        await SendTrackedRequestAsync("sessions.preview", new
+        {
+            keys,
+            limit,
+            maxChars
+        });
+    }
+
+    public Task<bool> PatchSessionAsync(string key, string? thinkingLevel = null, string? verboseLevel = null)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return Task.FromResult(false);
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["key"] = key
+        };
+        if (thinkingLevel is not null)
+            payload["thinkingLevel"] = thinkingLevel;
+        if (verboseLevel is not null)
+            payload["verboseLevel"] = verboseLevel;
+        return TrySendTrackedRequestAsync("sessions.patch", payload);
+    }
+
+    public Task<bool> ResetSessionAsync(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return Task.FromResult(false);
+        return TrySendTrackedRequestAsync("sessions.reset", new { key });
+    }
+
+    public Task<bool> DeleteSessionAsync(string key, bool deleteTranscript = true)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return Task.FromResult(false);
+        return TrySendTrackedRequestAsync("sessions.delete", new { key, deleteTranscript });
+    }
+
+    public Task<bool> CompactSessionAsync(string key, int maxLines = 400)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return Task.FromResult(false);
+        if (maxLines <= 0) maxLines = 400;
+        return TrySendTrackedRequestAsync("sessions.compact", new { key, maxLines });
     }
 
     /// <summary>Start a channel (telegram, whatsapp, etc).</summary>
@@ -279,6 +360,93 @@ public class OpenClawGatewayClient : IDisposable
         }
     }
 
+    private async Task SendTrackedRequestAsync(string method, object? parameters = null)
+    {
+        if (_webSocket?.State != WebSocketState.Open) return;
+
+        var requestId = Guid.NewGuid().ToString();
+        TrackPendingRequest(requestId, method);
+        try
+        {
+            await SendRawAsync(SerializeRequest(requestId, method, parameters));
+        }
+        catch
+        {
+            RemovePendingRequest(requestId);
+            throw;
+        }
+    }
+
+    private async Task<bool> TrySendTrackedRequestAsync(string method, object? parameters = null)
+    {
+        try
+        {
+            await SendTrackedRequestAsync(method, parameters);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"{method} request failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task RequestLegacyUsageAsync()
+    {
+        try
+        {
+            await SendTrackedRequestAsync("usage");
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Legacy usage request failed: {ex.Message}");
+        }
+    }
+
+    private static string SerializeRequest(string requestId, string method, object? parameters)
+    {
+        if (parameters is null)
+        {
+            return JsonSerializer.Serialize(new { type = "req", id = requestId, method });
+        }
+        return JsonSerializer.Serialize(new { type = "req", id = requestId, method, @params = parameters });
+    }
+
+    private void TrackPendingRequest(string requestId, string method)
+    {
+        lock (_pendingRequestLock)
+        {
+            _pendingRequestMethods[requestId] = method;
+        }
+    }
+
+    private void RemovePendingRequest(string requestId)
+    {
+        lock (_pendingRequestLock)
+        {
+            _pendingRequestMethods.Remove(requestId);
+        }
+    }
+
+    private string? TakePendingRequestMethod(string? requestId)
+    {
+        if (string.IsNullOrWhiteSpace(requestId)) return null;
+        lock (_pendingRequestLock)
+        {
+            if (!_pendingRequestMethods.TryGetValue(requestId, out var method)) return null;
+            _pendingRequestMethods.Remove(requestId);
+            return method;
+        }
+    }
+
+    private void ClearPendingRequests()
+    {
+        lock (_pendingRequestLock)
+        {
+            _pendingRequestMethods.Clear();
+        }
+    }
+
     // --- Message loop ---
 
     private async Task ListenForMessagesAsync()
@@ -307,6 +475,7 @@ public class OpenClawGatewayClient : IDisposable
                     var closeStatus = _webSocket.CloseStatus?.ToString() ?? "unknown";
                     var closeDesc = _webSocket.CloseStatusDescription ?? "no description";
                     _logger.Info($"Server closed connection: {closeStatus} - {closeDesc}");
+                    ClearPendingRequests();
                     StatusChanged?.Invoke(this, ConnectionStatus.Disconnected);
                     break;
                 }
@@ -315,6 +484,7 @@ public class OpenClawGatewayClient : IDisposable
         catch (WebSocketException ex) when (ex.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
         {
             _logger.Warn("Connection closed prematurely");
+            ClearPendingRequests();
             StatusChanged?.Invoke(this, ConnectionStatus.Disconnected);
         }
         catch (OperationCanceledException) { }
@@ -365,7 +535,25 @@ public class OpenClawGatewayClient : IDisposable
 
     private void HandleResponse(JsonElement root)
     {
+        string? requestMethod = null;
+        if (root.TryGetProperty("id", out var idProp))
+        {
+            requestMethod = TakePendingRequestMethod(idProp.GetString());
+        }
+
+        if (root.TryGetProperty("ok", out var okProp) &&
+            okProp.ValueKind == JsonValueKind.False)
+        {
+            HandleRequestError(requestMethod, root);
+            return;
+        }
+
         if (!root.TryGetProperty("payload", out var payload)) return;
+
+        if (!string.IsNullOrEmpty(requestMethod) && HandleKnownResponse(requestMethod!, payload))
+        {
+            return;
+        }
 
         // Handle hello-ok
         if (payload.TryGetProperty("type", out var t) && t.GetString() == "hello-ok")
@@ -380,6 +568,7 @@ public class OpenClawGatewayClient : IDisposable
                 await CheckHealthAsync();
                 await RequestSessionsAsync();
                 await RequestUsageAsync();
+                await RequestNodesAsync();
             });
         }
 
@@ -400,6 +589,153 @@ public class OpenClawGatewayClient : IDisposable
         {
             ParseUsage(usage);
         }
+
+        if (payload.TryGetProperty("nodes", out var nodes))
+        {
+            ParseNodeList(nodes);
+        }
+    }
+
+    private bool HandleKnownResponse(string method, JsonElement payload)
+    {
+        switch (method)
+        {
+            case "health":
+                if (payload.TryGetProperty("channels", out var channels))
+                    ParseChannelHealth(channels);
+                return true;
+            case "sessions.list":
+                if (TryGetSessionsPayload(payload, out var sessionsPayload))
+                    ParseSessions(sessionsPayload);
+                return true;
+            case "usage":
+                ParseUsage(payload);
+                return true;
+            case "usage.status":
+                ParseUsageStatus(payload);
+                return true;
+            case "usage.cost":
+                ParseUsageCost(payload);
+                return true;
+            case "node.list":
+                if (TryGetNodesPayload(payload, out var nodesPayload))
+                    ParseNodeList(nodesPayload);
+                return true;
+            case "sessions.preview":
+                ParseSessionsPreview(payload);
+                return true;
+            case "sessions.patch":
+            case "sessions.reset":
+            case "sessions.delete":
+            case "sessions.compact":
+                ParseSessionCommandResult(method, payload);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void HandleRequestError(string? method, JsonElement root)
+    {
+        var message = TryGetErrorMessage(root) ?? "request failed";
+
+        if (string.IsNullOrEmpty(method))
+        {
+            _logger.Warn($"Gateway request failed: {message}");
+            return;
+        }
+
+        if (IsUnknownMethodError(message))
+        {
+            switch (method)
+            {
+                case "usage.status":
+                    _usageStatusUnsupported = true;
+                    _logger.Warn("usage.status unsupported on gateway; falling back to usage");
+                    _ = RequestLegacyUsageAsync();
+                    return;
+                case "usage.cost":
+                    _usageCostUnsupported = true;
+                    _logger.Warn("usage.cost unsupported on gateway");
+                    return;
+                case "sessions.preview":
+                    _sessionPreviewUnsupported = true;
+                    _logger.Warn("sessions.preview unsupported on gateway");
+                    return;
+                case "node.list":
+                    _nodeListUnsupported = true;
+                    _logger.Warn("node.list unsupported on gateway");
+                    return;
+            }
+        }
+
+        if (IsSessionCommandMethod(method))
+        {
+            SessionCommandCompleted?.Invoke(this, new SessionCommandResult
+            {
+                Method = method,
+                Ok = false,
+                Error = message
+            });
+        }
+
+        _logger.Warn($"{method} failed: {message}");
+    }
+
+    private static bool TryGetSessionsPayload(JsonElement payload, out JsonElement sessions)
+    {
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("sessions", out sessions))
+        {
+            return true;
+        }
+
+        if (payload.ValueKind == JsonValueKind.Object || payload.ValueKind == JsonValueKind.Array)
+        {
+            sessions = payload;
+            return true;
+        }
+
+        sessions = default;
+        return false;
+    }
+
+    private static bool TryGetNodesPayload(JsonElement payload, out JsonElement nodes)
+    {
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("nodes", out nodes))
+        {
+            return true;
+        }
+
+        if (payload.ValueKind == JsonValueKind.Array || payload.ValueKind == JsonValueKind.Object)
+        {
+            nodes = payload;
+            return true;
+        }
+
+        nodes = default;
+        return false;
+    }
+
+    private static string? TryGetErrorMessage(JsonElement root)
+    {
+        if (!root.TryGetProperty("error", out var error)) return null;
+        if (error.ValueKind == JsonValueKind.String) return error.GetString();
+        if (error.ValueKind != JsonValueKind.Object) return null;
+        if (error.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String)
+            return message.GetString();
+        return null;
+    }
+
+    private static bool IsUnknownMethodError(string errorMessage)
+    {
+        return errorMessage.Contains("unknown method", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSessionCommandMethod(string method)
+    {
+        return method is "sessions.patch" or "sessions.reset" or "sessions.delete" or "sessions.compact";
     }
 
     private void HandleEvent(JsonElement root)
@@ -762,7 +1098,10 @@ public class OpenClawGatewayClient : IDisposable
                         continue;
                     
                     // Skip non-session keys (must look like a session key pattern)
-                    if (!sessionKey.Contains(':') && !sessionKey.Contains("agent") && !sessionKey.Contains("session"))
+                    if (!sessionKey.Equals("global", StringComparison.OrdinalIgnoreCase) &&
+                        !sessionKey.Contains(':') &&
+                        !sessionKey.Contains("agent") &&
+                        !sessionKey.Contains("session"))
                         continue;
                     
                     var session = new SessionInfo { Key = sessionKey };
@@ -779,17 +1118,7 @@ public class OpenClawGatewayClient : IDisposable
                         // Only override IsMain if the JSON explicitly says true
                         if (item.TryGetProperty("isMain", out var isMain) && isMain.GetBoolean())
                             session.IsMain = true;
-                        if (item.TryGetProperty("status", out var status))
-                            session.Status = status.GetString() ?? "active";
-                        if (item.TryGetProperty("model", out var model))
-                            session.Model = model.GetString();
-                        if (item.TryGetProperty("channel", out var channel))
-                            session.Channel = channel.GetString();
-                        if (item.TryGetProperty("startedAt", out var started))
-                        {
-                            if (DateTime.TryParse(started.GetString(), out var dt))
-                                session.StartedAt = dt;
-                        }
+                        PopulateSessionFromObject(session, item);
                     }
                     else if (item.ValueKind == JsonValueKind.String)
                     {
@@ -832,26 +1161,150 @@ public class OpenClawGatewayClient : IDisposable
         if (item.TryGetProperty("isMain", out var isMain) && isMain.GetBoolean())
             session.IsMain = true;
             
+        PopulateSessionFromObject(session, item);
+
+        _sessions[session.Key] = session;
+    }
+
+    private void PopulateSessionFromObject(SessionInfo session, JsonElement item)
+    {
         if (item.TryGetProperty("status", out var status))
-            session.Status = status.GetString() ?? "unknown";
+            session.Status = status.GetString() ?? "active";
         if (item.TryGetProperty("model", out var model))
             session.Model = model.GetString();
         if (item.TryGetProperty("channel", out var channel))
             session.Channel = channel.GetString();
+        if (item.TryGetProperty("displayName", out var displayName))
+            session.DisplayName = displayName.GetString();
+        if (item.TryGetProperty("provider", out var provider))
+            session.Provider = provider.GetString();
+        if (item.TryGetProperty("subject", out var subject))
+            session.Subject = subject.GetString();
+        if (item.TryGetProperty("room", out var room))
+            session.Room = room.GetString();
+        if (item.TryGetProperty("space", out var space))
+            session.Space = space.GetString();
+        if (item.TryGetProperty("sessionId", out var sessionId))
+            session.SessionId = sessionId.GetString();
+        if (item.TryGetProperty("thinkingLevel", out var thinking))
+            session.ThinkingLevel = thinking.GetString();
+        if (item.TryGetProperty("verboseLevel", out var verbose))
+            session.VerboseLevel = verbose.GetString();
+        if (item.TryGetProperty("systemSent", out var systemSent) &&
+            (systemSent.ValueKind == JsonValueKind.True || systemSent.ValueKind == JsonValueKind.False))
+            session.SystemSent = systemSent.GetBoolean();
+        if (item.TryGetProperty("abortedLastRun", out var abortedLastRun) &&
+            (abortedLastRun.ValueKind == JsonValueKind.True || abortedLastRun.ValueKind == JsonValueKind.False))
+            session.AbortedLastRun = abortedLastRun.GetBoolean();
+        session.InputTokens = GetLong(item, "inputTokens");
+        session.OutputTokens = GetLong(item, "outputTokens");
+        session.TotalTokens = GetLong(item, "totalTokens");
+        session.ContextTokens = GetLong(item, "contextTokens");
+
+        var updated = ParseUnixTimestampMs(item, "updatedAt");
+        if (updated.HasValue)
+        {
+            session.UpdatedAt = updated.Value;
+        }
+
         if (item.TryGetProperty("startedAt", out var started))
         {
             if (DateTime.TryParse(started.GetString(), out var dt))
                 session.StartedAt = dt;
         }
+    }
 
-        _sessions[session.Key] = session;
+    private void ParseNodeList(JsonElement nodesPayload)
+    {
+        try
+        {
+            JsonElement nodes = nodesPayload;
+            if (nodesPayload.ValueKind == JsonValueKind.Object)
+            {
+                if (nodesPayload.TryGetProperty("nodes", out var nestedNodes))
+                    nodes = nestedNodes;
+                else if (nodesPayload.TryGetProperty("items", out var nestedItems))
+                    nodes = nestedItems;
+            }
+
+            if (nodes.ValueKind != JsonValueKind.Array)
+                return;
+
+            var parsed = new List<GatewayNodeInfo>();
+            foreach (var nodeElement in nodes.EnumerateArray())
+            {
+                if (nodeElement.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                var nodeId = FirstNonEmpty(
+                    GetString(nodeElement, "nodeId"),
+                    GetString(nodeElement, "deviceId"),
+                    GetString(nodeElement, "id"),
+                    GetString(nodeElement, "clientId"));
+                if (string.IsNullOrWhiteSpace(nodeId))
+                    continue;
+
+                var status = FirstNonEmpty(
+                    GetString(nodeElement, "status"),
+                    GetString(nodeElement, "state"),
+                    "unknown");
+                var connected = GetOptionalBool(nodeElement, "connected");
+                var online = GetOptionalBool(nodeElement, "online");
+
+                parsed.Add(new GatewayNodeInfo
+                {
+                    NodeId = nodeId!,
+                    DisplayName = FirstNonEmpty(
+                        GetString(nodeElement, "displayName"),
+                        GetString(nodeElement, "name"),
+                        GetString(nodeElement, "label"),
+                        GetString(nodeElement, "shortId"),
+                        nodeId)!,
+                    Mode = FirstNonEmpty(
+                        GetString(nodeElement, "mode"),
+                        GetString(nodeElement, "clientMode"),
+                        "node")!,
+                    Status = status!,
+                    Platform = FirstNonEmpty(
+                        GetString(nodeElement, "platform"),
+                        GetString(nodeElement, "os")),
+                    LastSeen = ParseUnixTimestampMs(nodeElement, "lastSeenAt") ??
+                               ParseUnixTimestampMs(nodeElement, "lastSeen") ??
+                               ParseUnixTimestampMs(nodeElement, "updatedAt") ??
+                               ParseUnixTimestampMs(nodeElement, "connectedAt"),
+                    CapabilityCount = Math.Max(
+                        GetArrayLength(nodeElement, "caps"),
+                        GetArrayLength(nodeElement, "capabilities")),
+                    CommandCount = Math.Max(
+                        GetArrayLength(nodeElement, "declaredCommands"),
+                        GetArrayLength(nodeElement, "commands")),
+                    IsOnline = online ?? connected ?? status is "ok" or "online" or "connected" or "ready" or "active"
+                });
+            }
+
+            var ordered = parsed
+                .OrderByDescending(n => n.IsOnline)
+                .ThenByDescending(n => n.LastSeen ?? DateTime.MinValue)
+                .ThenBy(n => n.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            _nodes.Clear();
+            foreach (var node in ordered)
+                _nodes[node.NodeId] = node;
+
+            NodesUpdated?.Invoke(this, ordered);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Failed to parse node.list: {ex.Message}");
+        }
     }
 
     private void ParseUsage(JsonElement usage)
     {
         try
         {
-            _usage = new GatewayUsageInfo();
+            _usage ??= new GatewayUsageInfo();
             if (usage.TryGetProperty("inputTokens", out var inp))
                 _usage.InputTokens = inp.GetInt64();
             if (usage.TryGetProperty("outputTokens", out var outp))
@@ -864,12 +1317,312 @@ public class OpenClawGatewayClient : IDisposable
                 _usage.RequestCount = req.GetInt32();
             if (usage.TryGetProperty("model", out var model))
                 _usage.Model = model.GetString();
+            _usage.ProviderSummary = null;
 
             UsageUpdated?.Invoke(this, _usage);
         }
         catch (Exception ex)
         {
             _logger.Warn($"Failed to parse usage: {ex.Message}");
+        }
+    }
+
+    private void ParseUsageStatus(JsonElement payload)
+    {
+        try
+        {
+            var status = new GatewayUsageStatusInfo
+            {
+                UpdatedAt = ParseUnixTimestampMs(payload, "updatedAt") ?? DateTime.UtcNow
+            };
+
+            if (payload.TryGetProperty("providers", out var providers) &&
+                providers.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var providerElement in providers.EnumerateArray())
+                {
+                    var provider = new GatewayUsageProviderInfo
+                    {
+                        Provider = GetString(providerElement, "provider") ?? "",
+                        DisplayName = GetString(providerElement, "displayName") ?? GetString(providerElement, "provider") ?? "",
+                        Plan = GetString(providerElement, "plan"),
+                        Error = GetString(providerElement, "error")
+                    };
+
+                    if (providerElement.TryGetProperty("windows", out var windows) &&
+                        windows.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var windowElement in windows.EnumerateArray())
+                        {
+                            provider.Windows.Add(new GatewayUsageWindowInfo
+                            {
+                                Label = GetString(windowElement, "label") ?? "",
+                                UsedPercent = GetDouble(windowElement, "usedPercent"),
+                                ResetAt = ParseUnixTimestampMs(windowElement, "resetAt")
+                            });
+                        }
+                    }
+
+                    status.Providers.Add(provider);
+                }
+            }
+
+            _usageStatus = status;
+            UsageStatusUpdated?.Invoke(this, status);
+
+            _usage ??= new GatewayUsageInfo();
+            _usage.ProviderSummary = BuildProviderSummary(status);
+            UsageUpdated?.Invoke(this, _usage);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Failed to parse usage.status: {ex.Message}");
+        }
+    }
+
+    private void ParseUsageCost(JsonElement payload)
+    {
+        try
+        {
+            var summary = new GatewayCostUsageInfo
+            {
+                UpdatedAt = ParseUnixTimestampMs(payload, "updatedAt") ?? DateTime.UtcNow,
+                Days = GetInt(payload, "days")
+            };
+
+            if (payload.TryGetProperty("totals", out var totals) && totals.ValueKind == JsonValueKind.Object)
+            {
+                summary.Totals = new GatewayCostUsageTotalsInfo
+                {
+                    Input = GetLong(totals, "input"),
+                    Output = GetLong(totals, "output"),
+                    CacheRead = GetLong(totals, "cacheRead"),
+                    CacheWrite = GetLong(totals, "cacheWrite"),
+                    TotalTokens = GetLong(totals, "totalTokens"),
+                    TotalCost = GetDouble(totals, "totalCost"),
+                    MissingCostEntries = GetInt(totals, "missingCostEntries")
+                };
+            }
+
+            if (payload.TryGetProperty("daily", out var daily) && daily.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var day in daily.EnumerateArray())
+                {
+                    summary.Daily.Add(new GatewayCostUsageDayInfo
+                    {
+                        Date = GetString(day, "date") ?? "",
+                        Input = GetLong(day, "input"),
+                        Output = GetLong(day, "output"),
+                        CacheRead = GetLong(day, "cacheRead"),
+                        CacheWrite = GetLong(day, "cacheWrite"),
+                        TotalTokens = GetLong(day, "totalTokens"),
+                        TotalCost = GetDouble(day, "totalCost"),
+                        MissingCostEntries = GetInt(day, "missingCostEntries")
+                    });
+                }
+            }
+
+            _usageCost = summary;
+            UsageCostUpdated?.Invoke(this, summary);
+
+            _usage ??= new GatewayUsageInfo();
+            _usage.TotalTokens = summary.Totals.TotalTokens;
+            _usage.CostUsd = summary.Totals.TotalCost;
+            UsageUpdated?.Invoke(this, _usage);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Failed to parse usage.cost: {ex.Message}");
+        }
+    }
+
+    private void ParseSessionsPreview(JsonElement payload)
+    {
+        try
+        {
+            var previewPayload = new SessionsPreviewPayloadInfo
+            {
+                UpdatedAt = ParseUnixTimestampMs(payload, "ts") ?? DateTime.UtcNow
+            };
+
+            if (payload.TryGetProperty("previews", out var previews) &&
+                previews.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var previewElement in previews.EnumerateArray())
+                {
+                    var preview = new SessionPreviewInfo
+                    {
+                        Key = GetString(previewElement, "key") ?? "",
+                        Status = GetString(previewElement, "status") ?? "unknown"
+                    };
+
+                    if (previewElement.TryGetProperty("items", out var items) &&
+                        items.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in items.EnumerateArray())
+                        {
+                            preview.Items.Add(new SessionPreviewItemInfo
+                            {
+                                Role = GetString(item, "role") ?? "other",
+                                Text = GetString(item, "text") ?? ""
+                            });
+                        }
+                    }
+
+                    previewPayload.Previews.Add(preview);
+                }
+            }
+
+            SessionPreviewUpdated?.Invoke(this, previewPayload);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"Failed to parse sessions.preview: {ex.Message}");
+        }
+    }
+
+    private void ParseSessionCommandResult(string method, JsonElement payload)
+    {
+        var result = new SessionCommandResult
+        {
+            Method = method,
+            Ok = true,
+            Key = GetString(payload, "key"),
+            Reason = GetString(payload, "reason")
+        };
+
+        if (payload.TryGetProperty("deleted", out var deleted) &&
+            (deleted.ValueKind == JsonValueKind.True || deleted.ValueKind == JsonValueKind.False))
+        {
+            result.Deleted = deleted.GetBoolean();
+        }
+
+        if (payload.TryGetProperty("compacted", out var compacted) &&
+            (compacted.ValueKind == JsonValueKind.True || compacted.ValueKind == JsonValueKind.False))
+        {
+            result.Compacted = compacted.GetBoolean();
+        }
+
+        if (payload.TryGetProperty("kept", out var kept) && kept.ValueKind == JsonValueKind.Number)
+        {
+            result.Kept = kept.GetInt32();
+        }
+
+        SessionCommandCompleted?.Invoke(this, result);
+    }
+
+    private static string BuildProviderSummary(GatewayUsageStatusInfo status)
+    {
+        if (status.Providers.Count == 0) return "";
+
+        var parts = new List<string>();
+        foreach (var provider in status.Providers)
+        {
+            if (parts.Count == 2) break;
+            var displayName = string.IsNullOrWhiteSpace(provider.DisplayName) ? provider.Provider : provider.DisplayName;
+            if (string.IsNullOrWhiteSpace(displayName))
+                displayName = "provider";
+
+            if (!string.IsNullOrWhiteSpace(provider.Error))
+            {
+                parts.Add($"{displayName}: error");
+                continue;
+            }
+
+            if (provider.Windows.Count == 0) continue;
+            var window = provider.Windows.MaxBy(w => w.UsedPercent);
+            if (window is null) continue;
+            var remaining = Math.Clamp((int)Math.Round(100 - window.UsedPercent), 0, 100);
+            parts.Add($"{displayName}: {remaining}% left");
+        }
+
+        if (parts.Count == 0)
+            return "";
+
+        if (status.Providers.Count > 2)
+            parts.Add($"+{status.Providers.Count - 2}");
+
+        return string.Join(" · ", parts);
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        return null;
+    }
+
+    private static string? GetString(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.String)
+            return null;
+        return value.GetString();
+    }
+
+    private static bool? GetOptionalBool(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value))
+            return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private static int GetInt(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number)
+            return 0;
+        if (value.TryGetInt32(out var intVal)) return intVal;
+        if (value.TryGetInt64(out var longVal)) return (int)Math.Clamp(longVal, int.MinValue, int.MaxValue);
+        return 0;
+    }
+
+    private static long GetLong(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number)
+            return 0;
+        if (value.TryGetInt64(out var longVal)) return longVal;
+        if (value.TryGetDouble(out var doubleVal)) return (long)doubleVal;
+        return 0;
+    }
+
+    private static double GetDouble(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number)
+            return 0;
+        if (value.TryGetDouble(out var doubleVal)) return doubleVal;
+        return 0;
+    }
+
+    private static int GetArrayLength(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Array)
+            return 0;
+        return value.GetArrayLength();
+    }
+
+    private static DateTime? ParseUnixTimestampMs(JsonElement parent, string property)
+    {
+        if (!parent.TryGetProperty(property, out var value) || value.ValueKind != JsonValueKind.Number)
+            return null;
+        if (!value.TryGetDouble(out var raw)) return null;
+
+        // Accept either milliseconds or seconds.
+        var ms = raw > 10_000_000_000 ? raw : raw * 1000;
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -935,6 +1688,7 @@ public class OpenClawGatewayClient : IDisposable
         {
             _disposed = true;
             _cts.Cancel();
+            ClearPendingRequests();
             _webSocket?.Dispose();
             _cts.Dispose();
         }

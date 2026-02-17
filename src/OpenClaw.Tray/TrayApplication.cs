@@ -682,10 +682,9 @@ public class TrayApplication : ApplicationContext
         foreach (var session in sessions)
         {
             insertIndex++;
-            // Use ShortKey if DisplayText is too minimal
-            var displayText = session.DisplayText;
-            if (displayText == "⚡ Main" || displayText == "🔹 Sub")
-                displayText = $"{displayText} · {session.ShortKey}";
+            var displayText = session.RichDisplayText;
+            if (!string.IsNullOrWhiteSpace(session.AgeText))
+                displayText += $" · {session.AgeText}";
             var item = new ToolStripMenuItem($"  {displayText}") { Enabled = false };
             _contextMenu.Items.Insert(insertIndex, item);
             _sessionItems.Add(item);

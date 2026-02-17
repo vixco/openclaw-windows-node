@@ -80,8 +80,10 @@ Modern Windows 11-style system tray companion that connects to your local OpenCl
 - 🔄 **Auto-updates** - Automatic updates from GitHub Releases
 - 🌐 **Web Chat** - Embedded chat window with WebView2
 - 📊 **Live Status** - Real-time sessions, channels, and usage display
+- ⚡ **Activity Stream** - Dedicated flyout for live session, usage, node, and notification events
 - 🔔 **Toast Notifications** - Clickable Windows notifications with [smart categorization](docs/NOTIFICATION_CATEGORIZATION.md)
 - 📡 **Channel Control** - Start/stop Telegram & WhatsApp from the menu
+- 🖥️ **Node Observability** - Node inventory with online/offline state and copyable summary
 - ⏱ **Cron Jobs** - Quick access to scheduled tasks
 - 🚀 **Auto-start** - Launch with Windows
 - ⚙️ **Settings** - Full configuration dialog
@@ -89,9 +91,12 @@ Modern Windows 11-style system tray companion that connects to your local OpenCl
 
 ### Menu Sections
 - **Status** - Gateway connection status with click-to-view details
-- **Sessions** - Active agent sessions (clickable → dashboard)
+- **Sessions** - Active agent sessions with preview and per-session controls
+- **Usage** - Provider/cost summary with quick jump to activity details
 - **Channels** - Telegram/WhatsApp status with toggle control
-- **Actions** - Dashboard, Web Chat, Quick Send, Cron Jobs, History
+- **Nodes** - Online/offline node inventory and copyable summary
+- **Recent Activity** - Timestamped event stream for sessions, usage, nodes, and notifications
+- **Actions** - Dashboard, Web Chat, Quick Send, Activity Stream, History
 - **Settings** - Configuration, auto-start, logs
 
 ### Mac Parity Status
@@ -210,7 +215,13 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
     ```
     > 📷 **Camera permission**: Desktop builds rely on Windows Privacy settings. Packaged MSIX builds will show the system consent prompt.
     
-    > 🔒 **Exec Policy**: `system.run` is gated by an approval policy (saved to `exec-policy.json`). Default rules allow read-only commands (echo, Get-*, hostname, etc.) and deny destructive operations (rm, shutdown, registry edits). Use `system.execApprovals.get/set` to view/modify rules remotely.
+    > 🔒 **Exec Policy**: `system.run` is gated by an approval policy on the Windows node at `%LOCALAPPDATA%\OpenClawTray\exec-policy.json` (schema: `{ "defaultAction": "...", "rules": [...] }`). This is separate from gateway-side `~/.openclaw/exec-approvals.json`.
+    >
+    > Rules are matched against the `command` token (`argv[0]`). If your call runs `powershell.exe -File script.ps1`, allow `powershell.exe`/`pwsh.exe` (not just the script path), or you'll get `No matching rule; default policy applied`.
+    >
+    > ```bash
+    > openclaw nodes invoke --node <id> --command system.execApprovals.set --params '{"rules":[{"pattern":"powershell.exe","action":"allow"},{"pattern":"pwsh.exe","action":"allow"},{"pattern":"echo *","action":"allow"},{"pattern":"*","action":"deny"}],"defaultAction":"deny"}'
+    > ```
 
     > 🔐 **Web Chat secure context**: Remote web chat requires `https://` (or localhost). If using a self-signed cert, trust it in Windows (Trusted Root Certification Authorities) or use an SSH tunnel to localhost.
 

@@ -352,6 +352,32 @@ public class SessionInfoTests
         var session = new SessionInfo { Key = "short" };
         Assert.Equal("short", session.ShortKey);
     }
+
+    [Fact]
+    public void RichDisplayText_IncludesModelAndContextSummary()
+    {
+        var session = new SessionInfo
+        {
+            DisplayName = "telegram:alerts",
+            Model = "claude-opus-4-6",
+            TotalTokens = 12_000,
+            ContextTokens = 200_000,
+            ThinkingLevel = "high"
+        };
+
+        var text = session.RichDisplayText;
+        Assert.Contains("telegram:alerts", text);
+        Assert.Contains("claude-opus-4-6", text);
+        Assert.Contains("12.0K/200.0K ctx", text);
+        Assert.Contains("think high", text);
+    }
+
+    [Fact]
+    public void ContextSummaryShort_IsEmptyWithoutTokenWindow()
+    {
+        var session = new SessionInfo { TotalTokens = 1000, ContextTokens = 0 };
+        Assert.Equal("", session.ContextSummaryShort);
+    }
 }
 
 public class GatewayUsageInfoTests
@@ -361,6 +387,13 @@ public class GatewayUsageInfoTests
     {
         var usage = new GatewayUsageInfo();
         Assert.Equal("No usage data", usage.DisplayText);
+    }
+
+    [Fact]
+    public void DisplayText_ShowsProviderSummary_WhenLegacyUsageFieldsMissing()
+    {
+        var usage = new GatewayUsageInfo { ProviderSummary = "OpenAI: 72% left" };
+        Assert.Equal("OpenAI: 72% left", usage.DisplayText);
     }
 
     [Fact]

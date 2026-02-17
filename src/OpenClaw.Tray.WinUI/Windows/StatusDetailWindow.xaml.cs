@@ -62,7 +62,12 @@ public sealed partial class StatusDetailWindow : WindowEx
         {
             UsageSection.Visibility = Visibility.Visible;
             TodayCostText.Text = $"${usage.CostUsd:F2}";
-            TodayRequestsText.Text = usage.RequestCount.ToString();
+            TodayRequestsText.Text = usage.RequestCount > 0
+                ? $"{usage.RequestCount:N0} / {usage.TotalTokens:N0}"
+                : $"{usage.TotalTokens:N0}";
+            ProviderSummaryText.Text = string.IsNullOrWhiteSpace(usage.ProviderSummary)
+                ? "n/a"
+                : usage.ProviderSummary!;
         }
         else
         {

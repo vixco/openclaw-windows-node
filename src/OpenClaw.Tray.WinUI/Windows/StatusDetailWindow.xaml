@@ -39,15 +39,20 @@
                     <Grid.RowDefinitions>
                         <RowDefinition/>
                         <RowDefinition/>
+                        <RowDefinition/>
                     </Grid.RowDefinitions>
                     
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Today's Cost:"/>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Cost (window):"/>
                     <TextBlock x:Name="TodayCostText" Grid.Row="0" Grid.Column="1" 
                                Text="$0.00" FontWeight="SemiBold"/>
                     
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Requests:"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Requests / Tokens:"/>
                     <TextBlock x:Name="TodayRequestsText" Grid.Row="1" Grid.Column="1" 
-                               Text="0" FontWeight="SemiBold"/>
+                               Text="0 / 0" FontWeight="SemiBold"/>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Providers:"/>
+                    <TextBlock x:Name="ProviderSummaryText" Grid.Row="2" Grid.Column="1"
+                               Text="n/a" FontWeight="SemiBold" TextWrapping="Wrap"/>
                 </Grid>
             </StackPanel>
 
