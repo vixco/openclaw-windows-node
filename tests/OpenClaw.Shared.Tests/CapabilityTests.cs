@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 using Xunit;
 using OpenClaw.Shared;
@@ -517,6 +518,121 @@ public class CanvasCapabilityTests
         Assert.True(res.Ok);
         Assert.True(resetRaised);
     }
+
+    [Fact]
+    public async Task Navigate_RaisesEvent_WhenUrlPresent()
+    {
+        var cap = new CanvasCapability(NullLogger.Instance);
+        string? navigatedUrl = null;
+        cap.NavigateRequested += (s, url) => navigatedUrl = url;
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "c12",
+            Command = "canvas.navigate",
+            Args = Parse("""{"url":"https://example.com/page"}""")
+        };
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.Equal("https://example.com/page", navigatedUrl);
+    }
+
+    [Fact]
+    public async Task Eval_ReturnsError_WhenHandlerThrows()
+    {
+        var cap = new CanvasCapability(NullLogger.Instance);
+        cap.EvalRequested += (script) => throw new InvalidOperationException("WebView2 not ready");
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "c13",
+            Command = "canvas.eval",
+            Args = Parse("""{"script":"document.title"}""")
+        };
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("WebView2 not ready", res.Error);
+    }
+
+    [Fact]
+    public async Task Snapshot_CallsHandler_WithArgs()
+    {
+        var cap = new CanvasCapability(NullLogger.Instance);
+        CanvasSnapshotArgs? receivedArgs = null;
+        cap.SnapshotRequested += (args) =>
+        {
+            receivedArgs = args;
+            return Task.FromResult("base64data");
+        };
+
+        var req = new NodeInvokeRequest
+        {
+            Id = "c14",
+            Command = "canvas.snapshot",
+            Args = Parse("""{"format":"jpeg","maxWidth":800,"quality":70}""")
+        };
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.NotNull(receivedArgs);
+        Assert.Equal("jpeg", receivedArgs!.Format);
+        Assert.Equal(800, receivedArgs.MaxWidth);
+        Assert.Equal(70, receivedArgs.Quality);
+    }
+
+    [Fact]
+    public async Task Snapshot_ReturnsError_WhenHandlerThrows()
+    {
+        var cap = new CanvasCapability(NullLogger.Instance);
+        cap.SnapshotRequested += (args) => throw new InvalidOperationException("Canvas not visible");
+
+        var req = new NodeInvokeRequest { Id = "c15", Command = "canvas.snapshot", Args = Parse("""{}""") };
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("Canvas not visible", res.Error);
+    }
+
+    [Fact]
+    public async Task A2UIPush_WithJsonlPath_ReadsFile()
+    {
+        var cap = new CanvasCapability(NullLogger.Instance);
+        CanvasA2UIArgs? received = null;
+        cap.A2UIPushRequested += (s, a) => received = a;
+
+        var tmpFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tmpFile, """{"type":"text","value":"hello"}""");
+            var req = new NodeInvokeRequest
+            {
+                Id = "c16",
+                Command = "canvas.a2ui.push",
+                Args = Parse($$$"""{"jsonlPath":"{{{tmpFile.Replace("\\", "\\\\")}}}"}""")
+            };
+            var res = await cap.ExecuteAsync(req);
+            Assert.True(res.Ok);
+            Assert.NotNull(received);
+            Assert.Contains("hello", received!.Jsonl);
+        }
+        finally
+        {
+            File.Delete(tmpFile);
+        }
+    }
+
+    [Fact]
+    public async Task A2UIPush_WithMissingJsonlPath_ReturnsError()
+    {
+        var cap = new CanvasCapability(NullLogger.Instance);
+        var req = new NodeInvokeRequest
+        {
+            Id = "c17",
+            Command = "canvas.a2ui.push",
+            Args = Parse("""{"jsonlPath":"/nonexistent/path/file.jsonl"}""")
+        };
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("Failed to read jsonlPath", res.Error);
+    }
 }
 
 public class ScreenCapabilityTests
@@ -596,6 +712,78 @@ public class ScreenCapabilityTests
         var res = await cap.ExecuteAsync(req);
         Assert.True(res.Ok);
         Assert.NotNull(res.Payload);
+    }
+
+    [Fact]
+    public async Task Capture_ReturnsError_WhenHandlerThrows()
+    {
+        var cap = new ScreenCapability(NullLogger.Instance);
+        cap.CaptureRequested += (args) => throw new InvalidOperationException("Display access denied");
+
+        var req = new NodeInvokeRequest { Id = "s5", Command = "screen.capture", Args = Parse("""{}""") };
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("Display access denied", res.Error);
+    }
+
+    [Fact]
+    public async Task List_ReturnsError_WhenHandlerThrows()
+    {
+        var cap = new ScreenCapability(NullLogger.Instance);
+        cap.ListRequested += () => throw new InvalidOperationException("Screen enumeration failed");
+
+        var req = new NodeInvokeRequest { Id = "s6", Command = "screen.list", Args = Parse("""{}""") };
+        var res = await cap.ExecuteAsync(req);
+        Assert.False(res.Ok);
+        Assert.Contains("Screen enumeration failed", res.Error);
+    }
+
+    [Fact]
+    public async Task Capture_ResponseIncludesDataUri()
+    {
+        var cap = new ScreenCapability(NullLogger.Instance);
+        cap.CaptureRequested += (args) => Task.FromResult(new ScreenCaptureResult
+        {
+            Format = "png",
+            Width = 1920,
+            Height = 1080,
+            Base64 = "abc123"
+        });
+
+        var req = new NodeInvokeRequest { Id = "s7", Command = "screen.capture", Args = Parse("""{}""") };
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+
+        var json = JsonSerializer.Serialize(res.Payload);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        Assert.True(root.TryGetProperty("image", out var imageEl));
+        Assert.StartsWith("data:image/png;base64,", imageEl.GetString());
+        Assert.Contains("abc123", imageEl.GetString());
+    }
+
+    [Fact]
+    public async Task Capture_UsesMonitorAlias_ForScreenIndex()
+    {
+        var cap = new ScreenCapability(NullLogger.Instance);
+        ScreenCaptureArgs? receivedArgs = null;
+        cap.CaptureRequested += (args) =>
+        {
+            receivedArgs = args;
+            return Task.FromResult(new ScreenCaptureResult { Format = "png", Width = 1920, Height = 1080, Base64 = "" });
+        };
+
+        // "monitor" is an alias for "screenIndex"
+        var req = new NodeInvokeRequest
+        {
+            Id = "s8",
+            Command = "screen.capture",
+            Args = Parse("""{"monitor":2}""")
+        };
+        var res = await cap.ExecuteAsync(req);
+        Assert.True(res.Ok);
+        Assert.NotNull(receivedArgs);
+        Assert.Equal(2, receivedArgs!.MonitorIndex);
     }
 }
 
