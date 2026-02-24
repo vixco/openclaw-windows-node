@@ -13,7 +13,9 @@ public class OpenClawGatewayClient : IDisposable
 {
     private ClientWebSocket? _webSocket;
     private readonly string _gatewayUrl;
+    private readonly string _gatewayUrlForDisplay;
     private readonly string _token;
+    private readonly string? _credentials;
     private readonly IOpenClawLogger _logger;
     private CancellationTokenSource _cts;
     private bool _disposed;
@@ -57,7 +59,9 @@ public class OpenClawGatewayClient : IDisposable
     public OpenClawGatewayClient(string gatewayUrl, string token, IOpenClawLogger? logger = null)
     {
         _gatewayUrl = GatewayUrlHelper.NormalizeForWebSocket(gatewayUrl);
+        _gatewayUrlForDisplay = GatewayUrlHelper.SanitizeForDisplay(_gatewayUrl);
         _token = token;
+        _credentials = GatewayUrlHelper.ExtractCredentials(gatewayUrl);
         _logger = logger ?? NullLogger.Instance;
         _cts = new CancellationTokenSource();
     }
@@ -67,7 +71,7 @@ public class OpenClawGatewayClient : IDisposable
         try
         {
             StatusChanged?.Invoke(this, ConnectionStatus.Connecting);
-            _logger.Info($"Connecting to gateway: {_gatewayUrl}");
+            _logger.Info($"Connecting to gateway: {_gatewayUrlForDisplay}");
 
             _webSocket = new ClientWebSocket();
             _webSocket.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
@@ -77,7 +81,16 @@ public class OpenClawGatewayClient : IDisposable
             var originScheme = uri.Scheme == "wss" ? "https" : "http";
             var origin = $"{originScheme}://{uri.Host}:{uri.Port}";
             _webSocket.Options.SetRequestHeader("Origin", origin);
-            
+
+            if (!string.IsNullOrEmpty(_credentials))
+            {
+                var credentialsToEncode = GatewayUrlHelper.DecodeCredentials(_credentials);
+
+                _webSocket.Options.SetRequestHeader(
+                    "Authorization",
+                    $"Basic {Convert.ToBase64String(Encoding.UTF8.GetBytes(credentialsToEncode))}");
+            }
+
             await _webSocket.ConnectAsync(uri, _cts.Token);
 
             ResetUnsupportedMethodFlags();
