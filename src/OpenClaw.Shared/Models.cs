@@ -106,6 +106,20 @@ public class ChannelHealth
     public string? AuthAge { get; set; }
     public string? Type { get; set; }
 
+    /// <summary>
+    /// Returns true if the given status string represents a healthy/running channel.
+    /// Use this instead of inline status checks to keep the healthy-status set consistent.
+    /// </summary>
+    public static bool IsHealthyStatus(string? status) =>
+        status?.ToLowerInvariant() is "ok" or "connected" or "running" or "active" or "ready";
+
+    /// <summary>
+    /// Returns true if the given status string represents an intermediate (not yet healthy, not error) state.
+    /// </summary>
+    public static bool IsIntermediateStatus(string? status) =>
+        status?.ToLowerInvariant() is "stopped" or "idle" or "paused" or "configured" or "pending"
+            or "connecting" or "reconnecting";
+
     public string DisplayText
     {
         get

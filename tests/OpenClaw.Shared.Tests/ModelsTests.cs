@@ -233,6 +233,73 @@ public class ChannelHealthTests
         var health = new ChannelHealth { Name = "", Status = "ok" };
         Assert.Contains(": ok", health.DisplayText);
     }
+
+    [Theory]
+    [InlineData("ok", true)]
+    [InlineData("connected", true)]
+    [InlineData("running", true)]
+    [InlineData("active", true)]
+    [InlineData("ready", true)]
+    [InlineData("OK", true)]
+    [InlineData("Active", true)]
+    [InlineData("Ready", true)]
+    [InlineData("CONNECTED", true)]
+    [InlineData("error", false)]
+    [InlineData("disconnected", false)]
+    [InlineData("stopped", false)]
+    [InlineData("not configured", false)]
+    [InlineData("unknown", false)]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    public void IsHealthyStatus_ReturnsExpected(string? status, bool expected)
+    {
+        Assert.Equal(expected, ChannelHealth.IsHealthyStatus(status));
+    }
+
+    [Theory]
+    [InlineData("stopped", true)]
+    [InlineData("idle", true)]
+    [InlineData("paused", true)]
+    [InlineData("configured", true)]
+    [InlineData("pending", true)]
+    [InlineData("connecting", true)]
+    [InlineData("reconnecting", true)]
+    [InlineData("Stopped", true)]
+    [InlineData("IDLE", true)]
+    [InlineData("ok", false)]
+    [InlineData("ready", false)]
+    [InlineData("error", false)]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    public void IsIntermediateStatus_ReturnsExpected(string? status, bool expected)
+    {
+        Assert.Equal(expected, ChannelHealth.IsIntermediateStatus(status));
+    }
+
+    [Theory]
+    [InlineData("ok")]
+    [InlineData("connected")]
+    [InlineData("running")]
+    [InlineData("active")]
+    [InlineData("ready")]
+    [InlineData("stopped")]
+    [InlineData("idle")]
+    [InlineData("paused")]
+    [InlineData("configured")]
+    [InlineData("pending")]
+    [InlineData("connecting")]
+    [InlineData("reconnecting")]
+    [InlineData("error")]
+    [InlineData("disconnected")]
+    [InlineData("failed")]
+    [InlineData("not configured")]
+    [InlineData(null)]
+    public void HealthyAndIntermediate_AreMutuallyExclusive(string? status)
+    {
+        Assert.False(
+            ChannelHealth.IsHealthyStatus(status) && ChannelHealth.IsIntermediateStatus(status),
+            $"Status '{status}' should not be both healthy and intermediate");
+    }
 }
 
 public class SessionInfoTests
