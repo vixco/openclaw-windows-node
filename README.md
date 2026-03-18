@@ -14,7 +14,7 @@ This monorepo contains three projects:
 
 | Project | Description |
 |---------|-------------|
-| **OpenClaw.Tray** | System tray application for quick access to OpenClaw |
+| **OpenClaw.Tray.WinUI** | System tray application (WinUI 3) for quick access to OpenClaw |
 | **OpenClaw.Shared** | Shared gateway client library |
 | **OpenClaw.CommandPalette** | PowerToys Command Palette extension |
 
@@ -40,7 +40,6 @@ Use the build script to check prerequisites and build:
 
 # Build specific project
 .\build.ps1 -Project WinUI
-.\build.ps1 -Project Tray -Configuration Release
 ```
 
 Or build directly with dotnet:
@@ -61,10 +60,7 @@ dotnet build src/OpenClaw.Tray.WinUI -r win-x64 -p:PackageMsix=true    # x64 MSI
 ### Run Tray App
 
 ```powershell
-# WinForms version
-dotnet run --project src/OpenClaw.Tray/OpenClaw.Tray.csproj
-
-# WinUI version - run the exe directly (path includes runtime identifier)
+# Run the exe directly (path includes runtime identifier)
 .\src\OpenClaw.Tray.WinUI\bin\Debug\net10.0-windows10.0.19041.0\win-arm64\OpenClaw.Tray.WinUI.exe  # ARM64
 .\src\OpenClaw.Tray.WinUI\bin\Debug\net10.0-windows10.0.19041.0\win-x64\OpenClaw.Tray.WinUI.exe    # x64
 ```
@@ -139,8 +135,8 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
 
 | Capability | Commands | Description |
 |------------|----------|-------------|
-| **System** | `system.notify`, `system.run`, `system.execApprovals.get`, `system.execApprovals.set` | Show Windows toast notifications, execute commands with policy controls |
-| **Canvas** | `canvas.present`, `canvas.hide`, `canvas.navigate`, `canvas.eval`, `canvas.snapshot`, `canvas.a2ui.push` (investigating), `canvas.a2ui.reset` (investigating) | Display and control a WebView2 window |
+| **System** | `system.notify`, `system.run`, `system.run.prepare`, `system.which`, `system.execApprovals.get`, `system.execApprovals.set` | Show Windows toast notifications, execute commands with policy controls |
+| **Canvas** | `canvas.present`, `canvas.hide`, `canvas.navigate`, `canvas.eval`, `canvas.snapshot`, `canvas.a2ui.push`, `canvas.a2ui.reset` | Display and control a WebView2 window |
 | **Screen** | `screen.capture`, `screen.list` | Capture screenshots |
 | **Camera** | `camera.list`, `camera.snap` | Enumerate cameras and capture a still photo |
 
@@ -161,6 +157,8 @@ When Node Mode is enabled in Settings, your Windows PC becomes a **node** that t
          "allowCommands": [
            "system.notify",
            "system.run",
+           "system.run.prepare",
+           "system.which",
            "system.execApprovals.get",
            "system.execApprovals.set",
            "canvas.present",

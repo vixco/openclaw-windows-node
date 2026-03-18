@@ -8,7 +8,7 @@ This document provides a comprehensive code review of the OpenClaw Windows Hub r
 
 ## Project Structure
 - **OpenClaw.Shared**: WebSocket gateway client and data models (✅ Cross-platform compatible)
-- **OpenClaw.Tray**: Windows system tray application (⚠️ Windows-only)
+- **OpenClaw.Tray.WinUI**: WinUI 3 system tray application (⚠️ Windows-only)
 - **OpenClaw.CommandPalette**: PowerToys extension (⚠️ Windows-only)
 
 ## Code Quality Analysis
@@ -152,7 +152,7 @@ if (lower.Contains("blood sugar") || lower.Contains("glucose"))
 
 #### 6. Resource Management (Low Priority)
 
-**Location**: `TrayApplication.CreateStatusIcon()` (in Tray project)
+**Location**: `TrayApplication icon management` (in WinUI project)
 
 **Issue**: Icon creation uses `bitmap.GetHicon()` which requires manual cleanup via `DestroyIcon()`. The `SafeDestroyIcon()` has a bare catch block.
 
@@ -224,19 +224,10 @@ public async Task SendChatMessageAsync(string message)
 
 ## Testing Coverage
 
-### ✅ Tests Added (88 tests)
+### ✅ Tests Added (571 tests)
 
-1. **Models.cs** - Full coverage of:
-   - `AgentActivity`: All activity kinds, glyph mapping, display text
-   - `ChannelHealth`: All status types, capitalization, error display
-   - `SessionInfo`: Display text, ShortKey for various key formats
-   - `GatewayUsageInfo`: Token formatting (K/M suffixes), cost display
-
-2. **OpenClawGatewayClient Utilities** - Coverage of:
-   - `ClassifyNotification()`: All notification types (health, urgent, email, etc.)
-   - `ClassifyTool()`: All tool-to-activity mappings
-   - `ShortenPath()`: Path truncation edge cases
-   - `TruncateLabel()`: Label truncation
+1. **OpenClaw.Shared.Tests** (478 tests) - Models, gateway client, exec approvals, capabilities, URL helpers, notification categorization, shell quoting
+2. **OpenClaw.Tray.Tests** (93 tests) - Menu display, menu positioning, settings round-trip, deep link parsing
 
 ### 📋 Recommended Additional Tests
 
@@ -299,12 +290,12 @@ if (Key.Contains('/') || Key.Contains('\\'))
 ## Build & Deployment
 
 ### ✅ Build Configuration
-- Uses .NET 9.0 SDK
+- Uses .NET 10.0 SDK
 - Proper project references
 - Clean separation of concerns
 
 ### ⚠️ Notes
-- Tray and CommandPalette projects require Windows to build (Windows Forms, PowerToys SDK)
+- Tray and CommandPalette projects require Windows to build (WinUI 3 / Windows App SDK, PowerToys SDK)
 - Tests can run cross-platform (tested on Linux)
 - Consider adding CI/CD with cross-platform build matrix
 
@@ -360,8 +351,8 @@ All critical functionality has been validated through the new unit test suite. T
 
 ---
 
-**Review Date**: 2026-01-29
+**Review Date**: 2026-01-29 (updated 2026-03-18)
 **Reviewer**: GitHub Copilot Coding Agent
-**Test Coverage**: 88 tests, all passing
+**Test Coverage**: 571 tests, all passing
 **Overall Grade**: B+ (Good, with room for improvement)
 

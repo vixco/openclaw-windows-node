@@ -55,7 +55,7 @@ These features need the gateway to send `node.invoke` commands:
 When the node connects, it advertises these capabilities:
 - `canvas` - WebView2-based canvas window
 - `screen` - Screen capture via GDI
-- `system` - Notifications
+- `system` - Notifications, command execution (`system.run`, `system.run.prepare`, `system.which`), exec approval policy
 - `camera` - MediaCapture photo capture (frame reader fallback)
 
 ## Security Features
@@ -86,9 +86,11 @@ When the node connects, it advertises these capabilities:
 
 ## Remaining Work (Roadmap)
 
-1. **system.run + exec approvals**
-   - Implement `system.run` with PowerShell/cmd support
-   - Add `system.execApprovals` allowlist flow
+1. ~~**system.run + exec approvals**~~ ✅ Implemented
+   - `system.run` with PowerShell/cmd support
+   - `system.run.prepare` pre-flight command
+   - `system.which` command lookup
+   - `system.execApprovals` allowlist flow
 2. **screen.record**
    - Graphics Capture video recording (MP4/base64)
 3. **camera.clip**

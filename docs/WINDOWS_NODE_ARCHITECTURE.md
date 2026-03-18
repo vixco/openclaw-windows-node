@@ -1,10 +1,12 @@
 # 🏗️ Architecture: Windows Platform Strategy & Native Node Roadmap
 
+> **📝 Note**: This document was written during the initial planning phase (early 2026). Windows Node mode has since been implemented with canvas, screen, camera, system.run, and notification capabilities. The deployment scenarios, design rationale, and protocol details remain accurate reference material. The "Current State" table and roadmap checkboxes may not reflect the latest status — see README.md for current capabilities.
+
 ## Summary
 
 OpenClaw has **excellent** macOS support — the native menubar app runs as a full node with camera, canvas, screen capture, notifications, location, system exec, and more. Windows users today rely on **WSL2** for the gateway and get a limited experience: no native UI integration, no camera, no canvas surface, and NAT networking quirks.
 
-This issue proposes a comprehensive Windows platform strategy that evolves `OpenClaw.Tray` from a gateway *client* into a **native Windows node** — giving the agent eyes, hands, and a voice on Windows, and eventually exploring a fully native Windows gateway.
+This issue proposes a comprehensive Windows platform strategy that evolves `OpenClaw.Tray.WinUI` from a gateway *client* into a **native Windows node** — giving the agent eyes, hands, and a voice on Windows, and eventually exploring a fully native Windows gateway.
 
 **This is the umbrella issue for the Windows platform story.** It maps every deployment scenario, identifies capability gaps, proposes a phased roadmap, and provides enough technical detail for contributors to pick up work items.
 
@@ -34,9 +36,9 @@ Related issues: #5 (Canvas Panel), #6 (Skills Settings UI), #7 (DEVELOPMENT.md),
 | Component | Status | Details |
 |-----------|--------|---------|
 | `OpenClaw.Shared` | ✅ Working | Gateway WebSocket client library (.NET) |
-| `OpenClaw.Tray` | ✅ Working | System tray app — status, Quick Send, WebChat (WebView2), toast notifications, channel control |
+| `OpenClaw.Tray.WinUI` | ✅ Working | System tray app — status, Quick Send, WebChat (WebView2), toast notifications, channel control |
 | `OpenClaw.CommandPalette` | ✅ Working | PowerToys extension for quick commands |
-| Windows Node | ❌ Missing | Tray app is a *client/operator*, not a *node* |
+| Windows Node | ✅ Implemented | Canvas, screen, camera, system.run, notifications — all working via Node Mode |
 | Windows Gateway | ❌ Unexplored | Gateway runs in WSL2 only |
 
 ### How Scott uses it today

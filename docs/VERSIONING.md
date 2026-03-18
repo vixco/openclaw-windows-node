@@ -6,7 +6,7 @@ This project uses GitVersion for automatic semantic versioning based on git tags
 
 ### Version Properties in .csproj
 
-The project files (`OpenClaw.Tray.csproj` and `OpenClaw.Tray.WinUI.csproj`) define only the `<Version>` property:
+The project file (`OpenClaw.Tray.WinUI.csproj`) defines only the `<Version>` property:
 
 ```xml
 <Version>0.3.0</Version>

@@ -34,7 +34,7 @@ A comprehensive guide for building, running, and contributing to the OpenClaw Wi
 
 ## Project Structure
 
-This monorepo contains three main projects:
+This monorepo contains three projects:
 
 ```
 openclaw-windows-hub/
@@ -51,15 +51,14 @@ openclaw-windows-hub/
 │   │   ├── Dialogs/                  # Modal dialogs
 │   │   └── Helpers/                  # Icon generation, utilities
 │   │
-│   ├── OpenClaw.Tray/                # Legacy WinForms tray app (deprecated)
-│   │
 │   └── OpenClaw.CommandPalette/      # PowerToys Command Palette extension
 │       ├── OpenClaw.cs               # Extension entry point
 │       ├── OpenClawCommandsProvider.cs  # Command provider implementation
 │       └── Pages/                    # XAML pages for command results
 │
 ├── tests/
-│   └── OpenClaw.Shared.Tests/        # Unit tests for shared library
+│   ├── OpenClaw.Shared.Tests/        # Unit tests for shared library
+│   └── OpenClaw.Tray.Tests/          # Tests for tray helpers (menu, settings, deep links)
 │
 ├── tools/
 │   ├── cmdpal-dev.ps1                # Helper script for Command Palette development
@@ -81,6 +80,7 @@ openclaw-windows-hub/
 OpenClaw.Tray.WinUI  ──depends on──▶  OpenClaw.Shared
 OpenClaw.CommandPalette  ──depends on──▶  OpenClaw.Shared
 OpenClaw.Shared.Tests  ──tests──▶  OpenClaw.Shared
+OpenClaw.Tray.Tests  ──tests──▶  OpenClaw.Shared
 ```
 
 ### Key Subsystems
@@ -413,7 +413,7 @@ Sensitive data (authentication tokens) are never logged.
 
 ### Running Unit Tests
 
-The `OpenClaw.Shared.Tests` project contains comprehensive tests for the shared library:
+Two test projects cover the shared library and tray helpers:
 
 ```bash
 # Run all tests
@@ -427,8 +427,8 @@ dotnet test --filter "FullyQualifiedName~AgentActivityTests"
 ```
 
 **Test Coverage:**
-- ✅ 68 tests for data models (AgentActivity, ChannelHealth, SessionInfo, GatewayUsageInfo)
-- ✅ 20 tests for gateway client utilities (notification classification, tool mapping, path formatting)
+- ✅ **478 tests** in `OpenClaw.Shared.Tests` — models, gateway client, exec approvals, capabilities, URL helpers, notification categorization, shell quoting
+- ✅ **93 tests** in `OpenClaw.Tray.Tests` — menu display, menu positioning, settings round-trip, deep link parsing
 - ✅ All tests are pure unit tests (no network, no file system, no external dependencies)
 
 See [tests/OpenClaw.Shared.Tests/README.md](tests/OpenClaw.Shared.Tests/README.md) for detailed test documentation.
@@ -534,8 +534,8 @@ The CI builds multiple configurations:
 
 **Test Job:**
 - Runs on `windows-latest`
-- Builds Shared library, Tray app (WinForms), Tray app (WinUI), Tests
-- Runs unit tests: `dotnet test tests/OpenClaw.Shared.Tests`
+- Builds Shared library, Tray app (WinUI), Tests (Shared + Tray)
+- Runs unit tests: `dotnet test tests/OpenClaw.Shared.Tests` and `dotnet test tests/OpenClaw.Tray.Tests`
 - Uses GitVersion for semantic versioning
 
 **Build Job (Tray):**

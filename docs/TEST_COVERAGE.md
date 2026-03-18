@@ -1,171 +1,128 @@
 # Test Coverage Summary
 
-## Overview
-Comprehensive unit test suite added for the OpenClaw.Shared library with **88 tests, all passing** ✅
-
-## Test Statistics
+**571 tests total** (478 shared + 93 tray) — all passing ✅
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 88 |
-| Passing | 88 (100%) |
+| Total Tests | 571 |
+| Passing | 571 (100%) |
 | Failing | 0 |
-| Skipped | 0 |
-| Test Runtime | ~0.7 seconds |
-| Coverage | Core utility methods and data models |
+| Framework | xUnit 2.9.3 / .NET 10.0 |
 
-## Tests by Category
+## Test Projects
 
-### AgentActivityTests (13 tests)
-- ✅ Glyph property for all 10 ActivityKind values
-- ✅ DisplayText formatting for main/sub sessions
-- ✅ Empty label handling
+### OpenClaw.Shared.Tests — 478 tests
 
-### ChannelHealthTests (23 tests)
-- ✅ Status display for 8 different states (ON, OFF, ERR, LINKED, READY, etc.)
-- ✅ Capitalization of channel names
-- ✅ Auth age display for linked channels
-- ✅ Error message formatting
-- ✅ Case-insensitive status handling
+#### ModelsTests
+- **AgentActivityTests** (~15) — glyph mapping for all ActivityKind values, display text formatting
+- **ChannelHealthTests** (~25) — status display for ON/OFF/ERR/LINKED/READY states, case-insensitive matching
+- **SessionInfoTests** (~25) — display text, main/sub session prefixes, ShortKey extraction, context summaries
+- **SessionInfoContextSummaryTests** (~8) — token window formatting, millions/thousands display
+- **SessionInfoRichDisplayTextTests** (~8) — rich display labels, display name fallback
+- **SessionInfoAgeTextTests** (~6) — relative time formatting (minutes, hours ago)
+- **GatewayUsageInfoTests** (~12) — token counts (999, 15.0K, 2.5M), cost display, empty state
+- **GatewayNodeInfoTests** (~10) — display name, node info formatting
 
-### SessionInfoTests (22 tests)
-- ✅ DisplayText with various field combinations
-- ✅ Main vs Sub session prefixes
-- ✅ Channel and activity display
-- ✅ Status filtering logic
-- ✅ ShortKey extraction for:
-  - Colon-separated keys (agent:main:sub:uuid → "sub")
-  - File paths with forward slashes
-  - File paths with backslashes (Windows)
-  - Long key truncation (>20 chars → "first-17-chars...")
+#### OpenClawGatewayClientTests (~50)
+- Notification classification (health, urgent, calendar, build, email alerts)
+- Tool-to-activity mapping (exec, read, write, edit, search, browser, message)
+- Path shortening and label truncation
+- `ResetUnsupportedMethodFlags` — clearing unsupported flag state
 
-### GatewayUsageInfoTests (10 tests)
-- ✅ Token count formatting (999, 15.0K, 2.5M)
-- ✅ Cost display ($0.25, $1.50)
-- ✅ Request count display
-- ✅ Model name display
-- ✅ Combined field formatting
-- ✅ Empty state handling
+#### ExecApprovalPolicyTests (~20)
+- Policy rule evaluation, persistence, pattern matching
 
-### OpenClawGatewayClientTests (20 tests)
+#### CapabilityTests (~30)
+- **SystemCapabilityTests** — system command handling
+- **CanvasCapabilityTests** — canvas command handling
+- **ScreenCapabilityTests** — screen command handling
+- **CameraCapabilityTests** — camera command handling
 
-#### Notification Classification (11 tests)
-- ✅ Health alerts (blood sugar, glucose, CGM, mg/dl)
-- ✅ Urgent alerts (urgent, critical, emergency)
-- ✅ Reminders, stock alerts, emails
-- ✅ Calendar events
-- ✅ Error and build notifications
-- ✅ Default categorization
-- ✅ Case-insensitive matching
-- ✅ Title generation
+#### NodeCapabilitiesTests (~15)
+- Base class parsing, `ExecuteAsync` return values, payload handling
 
-#### Tool Classification (8 tests)
-- ✅ All tool mappings (exec, read, write, edit, search, browser, message)
-- ✅ Default behavior for unknown tools
-- ✅ Case-insensitive tool names
+#### DeviceIdentityTests (~15)
+- Payload format validation, pairing status events
 
-#### Utility Methods (6 tests)
-- ✅ Path shortening (/very/long/path/folder/file.txt → …/folder/file.txt)
-- ✅ Label truncation with ellipsis
-- ✅ Edge cases (empty strings, exact lengths)
-- ✅ Constructor validation
+#### NotificationCategorizerTests (~30)
+- Keyword matching, channel-to-type mapping (health, calendar, stock, build, email, urgent)
+- Priority rules, default categorization
 
-## Code Coverage Areas
+#### GatewayUrlHelperTests (~25)
+- URL normalization (http→ws, https→wss)
+- Embedded credential stripping
+- Port preservation, path handling
 
-### Fully Covered ✅
-- All data model display text generation
-- All notification classification types
-- All tool-to-activity mappings
-- Path and label formatting utilities
-- Edge cases and boundary conditions
+#### SystemRunTests (~20)
+- Command execution, timeout handling, environment variables
 
-### Not Covered (Requires Integration Tests)
-- WebSocket connection/disconnection flow
-- Message parsing with real gateway responses
-- Reconnection backoff logic
-- Concurrent event handling
-- Thread synchronization
-- File I/O operations
+#### ShellQuotingTests (~20)
+- Shell metachar detection (`&`, `|`, `;`, `$`, `` ` ``, `*`, `?`, `<`, `>`, etc.)
+- Quoting for safe shell invocation
 
-## Platform Compatibility
+#### WindowsNodeClientTests (~10)
+- URL handling, endpoint construction
 
-Tests are **cross-platform compatible**:
-- ✅ Run on Windows
-- ✅ Run on Linux
-- ✅ Run on macOS
+#### NodeInvokeResponseTests (~5)
+- Default values, property setting
 
-Special consideration for `SessionInfo.ShortKey`:
-- Uses `Path.GetFileName()` which is OS-specific
-- Tests account for platform differences
-- Behavior verified on Linux (development environment)
-
-## Running the Tests
-
-```bash
-# Run all tests
-dotnet test
-
-# Run with verbose output
-dotnet test --logger "console;verbosity=detailed"
-
-# Run specific test class
-dotnet test --filter "FullyQualifiedName~AgentActivityTests"
-
-# Generate coverage report (requires additional tools)
-dotnet test /p:CollectCoverage=true
-```
-
-## Test Quality
-
-### Strengths
-- **Comprehensive**: Tests all public-facing display logic
-- **Fast**: Entire suite runs in under 1 second
-- **Isolated**: No external dependencies (network, files, etc.)
-- **Maintainable**: Clear test names, well-organized
-- **Cross-platform**: Works on all .NET 9.0 platforms
-
-### Areas for Future Enhancement
-1. Integration tests with mock WebSocket server
-2. Performance tests for large data sets
-3. Stress tests for reconnection scenarios
-4. Property-based tests for string formatting
-5. Thread safety tests
-
-## Dependencies
-
-- **xUnit 2.9.3**: Modern, fast test framework
-- **.NET 9.0**: Current LTS runtime
-- **No mocking frameworks**: Uses reflection for private method testing
-
-## Impact
-
-This test suite provides:
-1. **Confidence**: All core display logic is verified
-2. **Regression Prevention**: Future changes will be caught by tests
-3. **Documentation**: Tests serve as usage examples
-4. **Quality Assurance**: Validates edge cases and error handling
-
-## Recommendations
-
-### Immediate
-- ✅ All tests passing
-- ✅ No security vulnerabilities (CodeQL verified)
-- ✅ Documentation complete
-
-### Future Enhancements
-1. Add integration tests for WebSocket protocol
-2. Add performance benchmarks
-3. Consider adding mutation testing
-4. Integrate with CI/CD pipeline
-5. Set up code coverage tracking
-
-## Conclusion
-
-The OpenClaw.Shared library now has a solid foundation of unit tests covering all critical display logic and utility methods. The test suite is fast, reliable, and cross-platform compatible. Future development can build on this foundation with confidence.
+#### ReadmeValidationTests (~5)
+- Documentation sync checks
 
 ---
 
-**Test Suite Version**: 1.0  
-**Last Updated**: 2026-01-29  
-**Framework**: xUnit 2.9.3 / .NET 9.0  
-**Status**: ✅ All tests passing
+### OpenClaw.Tray.Tests — 93 tests
+
+#### MenuDisplayHelperTests (~40)
+- `GetStatusIcon` — emoji mapping for Connected/Disconnected/Connecting/Error states
+- `GetChannelStatusIcon` — status icons for running/idle/pending/error/disconnected + case-insensitive variants
+- `GetNextToggleValue` — ON↔OFF toggling, case handling
+- Unknown/empty status fallback
+
+#### MenuPositionerTests (~15)
+- Screen edge clamping (top-left, bottom-right)
+- Taskbar-at-right scenario
+- Menu positioning relative to cursor
+
+#### SettingsRoundTripTests (~15)
+- Serialization/deserialization round trips
+- Default values on missing keys
+- Backward compatibility with older settings formats
+
+#### DeepLinkParserTests (~23)
+- `ParseDeepLink` — protocol validation, null/empty handling, subpath parsing, trailing slash stripping
+- Query parameter extraction (`GetQueryParam`)
+- URL-encoded message handling
+- Multiple query parameters, missing keys
+
+---
+
+## Running Tests
+
+```bash
+# All tests
+dotnet test
+
+# Single project
+dotnet test tests/OpenClaw.Shared.Tests
+dotnet test tests/OpenClaw.Tray.Tests
+
+# Specific test class
+dotnet test --filter "FullyQualifiedName~MenuDisplayHelperTests"
+
+# Verbose output
+dotnet test --logger "console;verbosity=detailed"
+```
+
+## Not Covered (Requires Integration Tests)
+
+- WebSocket connection/reconnection flow
+- Real gateway message parsing
+- Concurrent event handling
+- File I/O and thread synchronization
+
+---
+
+**Last Updated**: 2026-03-18
+**Framework**: xUnit 2.9.3 / .NET 10.0
+**Status**: ✅ 571 tests passing

@@ -187,12 +187,12 @@ function Build-Project($name, $path, $useRid = $false) {
 
 $projects = @{
     "Shared" = @{ Path = "src/OpenClaw.Shared/OpenClaw.Shared.csproj"; UseRid = $false }
-    "Tray" = @{ Path = "src/OpenClaw.Tray/OpenClaw.Tray.csproj"; UseRid = $false }
+    "Tray" = @{ Path = "src/OpenClaw.Tray.WinUI/OpenClaw.Tray.WinUI.csproj"; UseRid = $true }
     "WinUI" = @{ Path = "src/OpenClaw.Tray.WinUI/OpenClaw.Tray.WinUI.csproj"; UseRid = $true }
     "CommandPalette" = @{ Path = "src/OpenClaw.CommandPalette/OpenClaw.CommandPalette.csproj"; UseRid = $false }
 }
 
-$toBuild = if ($Project -eq "All") { @("Shared", "Tray", "WinUI") } else { @($Project) }
+$toBuild = if ($Project -eq "All") { @("Shared", "WinUI") } else { @($Project) }
 
 # Always build Shared first if building other projects
 if ($Project -ne "Shared" -and $Project -ne "All" -and $toBuild -notcontains "Shared") {
@@ -228,9 +228,6 @@ if ($failCount -eq 0) {
     Write-Host "🦞 All builds succeeded!" -ForegroundColor Green
     
     Write-Host "`nTo run:" -ForegroundColor Cyan
-    if ($buildResults.ContainsKey("Tray") -or $buildResults.ContainsKey("All")) {
-        Write-Host "  WinForms: dotnet run --project src/OpenClaw.Tray/OpenClaw.Tray.csproj" -ForegroundColor White
-    }
     if ($buildResults.ContainsKey("WinUI") -or $buildResults.ContainsKey("All")) {
         Write-Host "  WinUI:    .\src\OpenClaw.Tray.WinUI\bin\$Configuration\net10.0-windows10.0.19041.0\$rid\OpenClaw.Tray.WinUI.exe" -ForegroundColor White
     }
